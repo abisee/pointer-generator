@@ -19,9 +19,9 @@ To train your model, run:
 python run_summarization.py --mode=train --data_path=/path/to/train.bin --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
 ```
 
-This will create a subdirectory of your specified log_root called `myexperiment` where all checkpoints and other data will be saved. Then the model will start training using the specified datafile as training data.
+This will create a subdirectory of your specified log_root called `myexperiment` where all checkpoints and other data will be saved. Then the model will start training using the `train.bin` as training data.
 
-**Warning**: Using default settings as above, both initializing the model and running training iterations will probably be quite slow. To make things faster, try setting the following flags (especially `max_enc_steps` and `max_dec_steps`) to something smaller than the defaults specified in `run_summarization.py`: `hidden_dim`, `emb_dim`, `batch_size`, `max_enc_steps`, `max_dec_steps`, `vocab_size`.
+**Warning**: Using default settings as in the above command, both initializing the model and running training iterations will probably be quite slow. To make things faster, try setting the following flags (especially `max_enc_steps` and `max_dec_steps`) to something smaller than the defaults specified in `run_summarization.py`: `hidden_dim`, `emb_dim`, `batch_size`, `max_enc_steps`, `max_dec_steps`, `vocab_size`.
 
 ### Run (concurrent) eval
 You may want to run a concurrent evaluation job, that runs your model on the validation set and logs the loss. To do this, run:
@@ -32,7 +32,7 @@ python run_summarization.py --mode=eval --data_path=/path/to/val.bin --vocab_pat
 
 Note: you want to run the above command using the same settings you entered for your training job.
 
-The eval job will also save a snapshot of the model that scored the lowest loss on the validation set so far.
+The eval job will also save a snapshot of the model that scored the lowest loss on the validation data so far.
 
 ### Run beam search decoding
 To run beam search decoding:
