@@ -12,6 +12,8 @@ Tensorflow 1.0's [new seq2seq library](https://www.tensorflow.org/api_guides/pyt
 ### Get the dataset
 To obtain the CNN / Daily Mail dataset, follow the instructions [here](https://github.com/abisee/cnn-dailymail). Once finished, you should have datafiles `train.bin`, `val.bin`, `test.bin` and a vocabulary file `vocab`.
 
+**Note**: If you did this before 7th May 2017, follow the instructions [here](https://github.com/abisee/cnn-dailymail/issues/2) to correct a bug in the process.
+
 ### Run training
 To train your model, run:
 
