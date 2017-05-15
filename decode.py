@@ -228,10 +228,10 @@ def get_decode_dir_name(ckpt_name):
   """Make a descriptive name for the decode dir, including the name of the checkpoint we use to decode. This is called in single_pass mode."""
 
   if "train" in FLAGS.data_path: dataset = "train"
-  elif "validation" in FLAGS.data_path: dataset = "validation"
+  elif "val" in FLAGS.data_path: dataset = "val"
   elif "test" in FLAGS.data_path: dataset = "test"
-  else: raise ValueError("FLAGS.data_path %s should contain one of train, validation or test" % (FLAGS.data_path))
-  dirname = os.path.join(FLAGS.log_root, "decode_%s_%imaxenc_%ibeam_%imindec_%imaxdec" % (dataset, FLAGS.max_enc_steps, FLAGS.beam_size, FLAGS.min_dec_steps, FLAGS.max_dec_steps))
+  else: raise ValueError("FLAGS.data_path %s should contain one of train, val or test" % (FLAGS.data_path))
+  dirname = "decode_%s_%imaxenc_%ibeam_%imindec_%imaxdec" % (dataset, FLAGS.max_enc_steps, FLAGS.beam_size, FLAGS.min_dec_steps, FLAGS.max_dec_steps)
   if ckpt_name is not None:
     dirname += "_%s" % ckpt_name
   return dirname
