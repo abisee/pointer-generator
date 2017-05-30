@@ -10,7 +10,7 @@ Tensorflow 1.0's [new seq2seq library](https://www.tensorflow.org/api_guides/pyt
 ## How to run
 
 ### Get the dataset
-To obtain the CNN / Daily Mail dataset, follow the instructions [here](https://github.com/abisee/cnn-dailymail). Once finished, you should have datafiles `train.bin`, `val.bin`, `test.bin` and a vocabulary file `vocab`.
+To obtain the CNN / Daily Mail dataset, follow the instructions [here](https://github.com/abisee/cnn-dailymail). Once finished, you should have [chunked](https://github.com/abisee/cnn-dailymail/issues/3) datafiles `train_000.bin`, ..., `train_287.bin`, `val_000.bin`, ..., `val_013.bin`, `test_000.bin`, ..., `test_011.bin` (each contains 1000 examples) and a vocabulary file `vocab`.
 
 **Note**: If you did this before 7th May 2017, follow the instructions [here](https://github.com/abisee/cnn-dailymail/issues/2) to correct a bug in the process.
 
@@ -18,10 +18,10 @@ To obtain the CNN / Daily Mail dataset, follow the instructions [here](https://g
 To train your model, run:
 
 ```
-python run_summarization.py --mode=train --data_path=/path/to/train.bin --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
+python run_summarization.py --mode=train --data_path=/path/to/chunked/train_* --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
 ```
 
-This will create a subdirectory of your specified log_root called `myexperiment` where all checkpoints and other data will be saved. Then the model will start training using the `train.bin` as training data.
+This will create a subdirectory of your specified `log_root` called `myexperiment` where all checkpoints and other data will be saved. Then the model will start training using the `train_*.bin` files as training data.
 
 **Warning**: Using default settings as in the above command, both initializing the model and running training iterations will probably be quite slow. To make things faster, try setting the following flags (especially `max_enc_steps` and `max_dec_steps`) to something smaller than the defaults specified in `run_summarization.py`: `hidden_dim`, `emb_dim`, `batch_size`, `max_enc_steps`, `max_dec_steps`, `vocab_size`. 
 
@@ -31,7 +31,7 @@ This will create a subdirectory of your specified log_root called `myexperiment`
 You may want to run a concurrent evaluation job, that runs your model on the validation set and logs the loss. To do this, run:
 
 ```
-python run_summarization.py --mode=eval --data_path=/path/to/val.bin --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
+python run_summarization.py --mode=eval --data_path=/path/to/chunked/val_* --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
 ```
 
 Note: you want to run the above command using the same settings you entered for your training job.
@@ -42,7 +42,7 @@ The eval job will also save a snapshot of the model that scored the lowest loss 
 To run beam search decoding:
 
 ```
-python run_summarization.py --mode=decode --data_path=/path/to/val.bin --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
+python run_summarization.py --mode=decode --data_path=/path/to/chunked/val_* --vocab_path=/path/to/vocab --log_root=/path/to/a/log/directory --exp_name=myexperiment
 ```
 
 Note: you want to run the above command using the same settings you entered for your training job (plus any decode mode specific flags like `beam_size`).
