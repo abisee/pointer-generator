@@ -21,6 +21,9 @@ import random
 import struct
 import csv
 from tensorflow.core.example import example_pb2
+import tensorflow as tf
+
+FLAGS = tf.app.flags.FLAGS
 
 # <s> and </s> are used in the data files to segment the abstracts into sentences. They don't receive vocab ids.
 SENTENCE_START = '<s>'
