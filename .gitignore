@@ -164,3 +164,6 @@ ENV/
 /site
 
 # End of https://www.gitignore.io/api/python,pycharm
+
+# Custom
+.idea/
