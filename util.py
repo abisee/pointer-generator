@@ -34,13 +34,11 @@ def load_ckpt(saver, sess, load_best=False):
       ckpt_state = None
       if load_best:
         eval_dir = os.path.join(FLAGS.log_root, "eval")
-        tf.logging.info("Trying to load model from: %s" % eval_dir)
         if os.path.exists(eval_dir):
           try:
             ckpt_state = tf.train.get_checkpoint_state(eval_dir, latest_filename="checkpoint_best")
-            tf.logging.info("Loaded best model %s" % ckpt_state.model_checkpoint_path)
           except ValueError:
-            tf.logging.info("No best model (run eval)")
+            pass
       
       train_dir = os.path.join(FLAGS.log_root, "train")
       if ckpt_state is None:
