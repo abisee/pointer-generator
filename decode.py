@@ -22,13 +22,12 @@ from builtins import object
 import os
 import time
 import tensorflow as tf
-from . import beam_search
-from . import data
+import beam_search
+import data
 import json
 import pyrouge
-from . import util
+import util
 import logging
-import numpy as np
 
 FLAGS = tf.app.flags.FLAGS
 
