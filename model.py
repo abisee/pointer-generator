@@ -15,12 +15,18 @@
 # ==============================================================================
 
 """This file contains code to build and run the tensorflow graph for the sequence-to-sequence model"""
+from __future__ import division
+from __future__ import absolute_import
 
+from builtins import zip
+from builtins import range
+from past.utils import old_div
+from builtins import object
 import os
 import time
 import numpy as np
 import tensorflow as tf
-from attention_decoder import attention_decoder
+from .attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
 
 FLAGS = tf.app.flags.FLAGS
@@ -299,7 +305,7 @@ class SummarizationModel(object):
     # Apply adagrad optimizer
     optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
     with tf.device("/gpu:0"):
-      self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
+      self._train_op = optimizer.apply_gradients(list(zip(grads, tvars)), global_step=self.global_step, name='train_step')
 
 
   def build_graph(self):
@@ -416,7 +422,7 @@ class SummarizationModel(object):
     results = sess.run(to_return, feed_dict=feed) # run the decoder step
 
     # Convert results['states'] (a single LSTMStateTuple) into a list of LSTMStateTuple -- one for each hypothesis
-    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in xrange(beam_size)]
+    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in range(beam_size)]
 
     # Convert singleton list containing a tensor to a list of k arrays
     assert len(results['attn_dists'])==1
@@ -427,14 +433,14 @@ class SummarizationModel(object):
       assert len(results['p_gens'])==1
       p_gens = results['p_gens'][0].tolist()
     else:
-      p_gens = [None for _ in xrange(beam_size)]
+      p_gens = [None for _ in range(beam_size)]
 
     # Convert the coverage tensor to a list length k containing the coverage vector for each hypothesis
     if FLAGS.coverage:
       new_coverage = results['coverage'].tolist()
       assert len(new_coverage) == beam_size
     else:
-      new_coverage = [None for _ in xrange(beam_size)]
+      new_coverage = [None for _ in range(beam_size)]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
@@ -452,7 +458,7 @@ def _mask_and_avg(values, padding_mask):
 
   dec_lens = tf.reduce_sum(padding_mask, axis=1) # shape batch_size. float32
   values_per_step = [v * padding_mask[:,dec_step] for dec_step,v in enumerate(values)]
-  values_per_ex = sum(values_per_step)/dec_lens # shape (batch_size); normalized value for each batch member
+  values_per_ex = old_div(sum(values_per_step),dec_lens) # shape (batch_size); normalized value for each batch member
   return tf.reduce_mean(values_per_ex) # overall average
 
 

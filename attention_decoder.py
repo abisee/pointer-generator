@@ -16,6 +16,7 @@
 
 """This file defines the decoder"""
 
+from builtins import str
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import array_ops
