@@ -214,8 +214,10 @@ class SummarizationModel(object):
       with tf.variable_scope('embedding'):
         embedding = tf.get_variable('embedding', [vsize, hps.emb_dim], dtype=tf.float32, initializer=self.trunc_norm_init)
         if hps.mode=="train": self._add_emb_vis(embedding) # add to tensorboard
-        emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) # tensor with shape (batch_size, max_enc_steps, emb_size)
-        emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list length max_dec_steps containing shape (batch_size, emb_size)
+        emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) # tensor with shape
+        # (batch_size, max_enc_steps, emb_size)
+        emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list
+        # length max_dec_steps containing shape (batch_size, emb_size)
 
       # Add the encoder.
       enc_outputs, fw_st, bw_st = self._add_encoder(emb_enc_inputs, self._enc_lens)
