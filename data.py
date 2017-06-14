@@ -17,7 +17,7 @@
 """This file contains code to read the train/eval/test data from file and process it, and read the vocab data from file and process it"""
 from __future__ import print_function
 
-from past.builtins import range
+from builtins import range
 import glob
 import random
 import struct
