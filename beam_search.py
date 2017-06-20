@@ -135,9 +135,23 @@ def run_beam_search(sess, model, vocab, batch):
                            coverage=new_coverage_i)
         all_hyps.append(new_hyp)
 
+    temperature = model._hps.temperature
+    if temperature is None:
+      all_hyps = sort_hyps(all_hyps)
+    else:
+      n = min(FLAGS.beam_size*2, len(all_hyps))
+      prb = np.exp(np.array([h.avg_log_prob for h in all_hyps]) / temperature)
+      res = []
+      for i in xrange(n):
+        z = np.sum(prb)
+        r = np.argmax(np.random.multinomial(1, prb / z, 1))
+        res.append(all_hyps[r])
+        prb[r] = 0.  # make sure we select each element only once
+      all_hyps = res
+
     # Filter and collect any hypotheses that have produced the end token.
     hyps = [] # will contain hypotheses for the next step
-    for h in sort_hyps(all_hyps): # in order of most likely h
+    for h in all_hyps: # in order of most likely h
       if h.latest_token == vocab.word2id(data.STOP_DECODING): # if stop token is reached...
         # If this hypothesis is sufficiently long, put in results. Otherwise discard.
         if steps >= FLAGS.min_dec_steps:

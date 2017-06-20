@@ -23,7 +23,7 @@ import tensorflow as tf
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
 EPS = 1e-8
-
+TEMPERATURE_TOP = 1000
 FLAGS = tf.app.flags.FLAGS
 
 class SummarizationModel(object):
@@ -283,7 +283,7 @@ class SummarizationModel(object):
       if hps.temperature is None:
         self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
       else:
-        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, 1000) # note batch_size=beam_size in decode mode
+        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, TEMPERATURE_TOP) # note batch_size=beam_size in decode mode
 
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""
@@ -439,23 +439,6 @@ class SummarizationModel(object):
       assert len(new_coverage) == beam_size
     else:
       new_coverage = [None for _ in xrange(beam_size)]
-
-    if hps.temperature is not None:
-      def sample(probs, n, temperature=hps.temperature):
-        """sample at most n elements according to their energy"""
-        n = min(n, len(probs))
-        prb = np.exp(-np.log(np.array(probs)+EPS) / temperature)
-        res = []
-        for i in xrange(n):
-          z = np.sum(prb)
-          r = np.argmax(np.random.multinomial(1, prb / z, 1))
-          res.append(r)
-          prb[r] = 0.  # make sure we select each element only once
-        return res
-
-      ids = sample(results['probs'], hps.batch_size*2) # note batch_size=beam_size in decode mode
-      results['ids'] = results['ids'][ids]
-      results['probs'] = results['probs'][ids]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
