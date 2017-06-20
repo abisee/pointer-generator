@@ -22,6 +22,7 @@ import numpy as np
 import tensorflow as tf
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
+EPS = 1e-8
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -240,9 +241,9 @@ class SummarizationModel(object):
       if FLAGS.pointer_gen:
         final_dists = self._calc_final_dist(vocab_dists, self.attn_dists)
         # Take log of final distribution
-        log_dists = [tf.log(dist) for dist in final_dists]
+        log_dists = [tf.log(dist + EPS) for dist in final_dists]
       else: # just take log of vocab_dists
-        log_dists = [tf.log(dist) for dist in vocab_dists]
+        log_dists = [tf.log(dist + EPS) for dist in vocab_dists]
 
 
       if hps.mode in ['train', 'eval']:
@@ -279,8 +280,10 @@ class SummarizationModel(object):
       # We run decode beam search mode one decoder step at a time
       assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
       log_dists = log_dists[0]
-      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
-
+      if hps.tempreture is None:
+        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
+      else:
+        self._topk_log_probs = log_dists
 
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""
@@ -381,6 +384,7 @@ class SummarizationModel(object):
       p_gens: Generation probabilities for this step. A list length beam_size. List of None if in baseline mode.
       new_coverage: Coverage vectors for this step. A list of arrays. List of None if coverage is not turned on.
     """
+    hps = self._hps
 
     beam_size = len(dec_init_states)
 
@@ -398,11 +402,13 @@ class SummarizationModel(object):
     }
 
     to_return = {
-      "ids": self._topk_ids,
+      # "ids": self._topk_ids,
       "probs": self._topk_log_probs,
       "states": self._dec_out_state,
       "attn_dists": self.attn_dists
     }
+    if hps.tempreture is None:
+      to_return["ids"] = self._topk_ids
 
     if FLAGS.pointer_gen:
       feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
@@ -436,7 +442,8 @@ class SummarizationModel(object):
     else:
       new_coverage = [None for _ in xrange(beam_size)]
 
-    return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
+    if hps.tempreture is None:
+      return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
 
 def _mask_and_avg(values, padding_mask):
