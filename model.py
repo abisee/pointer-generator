@@ -455,7 +455,7 @@ class SummarizationModel(object):
           prb[r] = 0.  # make sure we select each element only once
         return res
 
-      results['ids'] = sample(results['probs'])
+      results['ids'] = sample(results['probs'], hps.batch_size*2) # note batch_size=beam_size in decode mode
       results['probs'] = results['probs'][results['ids']]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
