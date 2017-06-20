@@ -280,7 +280,7 @@ class SummarizationModel(object):
       # We run decode beam search mode one decoder step at a time
       assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
       log_dists = log_dists[0]
-      if hps.tempreture is None:
+      if hps.temperature is None:
         self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
       else:
         self._topk_log_probs = log_dists
@@ -407,7 +407,7 @@ class SummarizationModel(object):
       "states": self._dec_out_state,
       "attn_dists": self.attn_dists
     }
-    if hps.tempreture is None:
+    if hps.temperature is None:
       to_return["ids"] = self._topk_ids
 
     if FLAGS.pointer_gen:
@@ -442,8 +442,23 @@ class SummarizationModel(object):
     else:
       new_coverage = [None for _ in xrange(beam_size)]
 
-    if hps.tempreture is None:
-      return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
+    if hps.temperature is not None:
+      def sample(probs, n, temperature=hps.temperature):
+        """sample at most n elements according to their energy"""
+        n = min(n, len(probs))
+        prb = np.exp(-np.log(np.array(probs)+EPS) / temperature)
+        res = []
+        for i in xrange(n):
+          z = np.sum(prb)
+          r = np.argmax(np.random.multinomial(1, prb / z, 1))
+          res.append(r)
+          prb[r] = 0.  # make sure we select each element only once
+        return res
+
+      results['ids'] = sample(results['probs'])
+      results['probs'] = results['probs'][results['ids']]
+
+    return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
 
 def _mask_and_avg(values, padding_mask):
