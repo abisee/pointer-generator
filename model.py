@@ -283,7 +283,7 @@ class SummarizationModel(object):
       if hps.temperature is None:
         self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
       else:
-        self._topk_log_probs = log_dists
+        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, 1000) # note batch_size=beam_size in decode mode
 
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""
@@ -402,13 +402,11 @@ class SummarizationModel(object):
     }
 
     to_return = {
-      # "ids": self._topk_ids,
+      "ids": self._topk_ids,
       "probs": self._topk_log_probs,
       "states": self._dec_out_state,
       "attn_dists": self.attn_dists
     }
-    if hps.temperature is None:
-      to_return["ids"] = self._topk_ids
 
     if FLAGS.pointer_gen:
       feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
@@ -455,8 +453,9 @@ class SummarizationModel(object):
           prb[r] = 0.  # make sure we select each element only once
         return res
 
-      results['ids'] = sample(results['probs'], hps.batch_size*2) # note batch_size=beam_size in decode mode
-      results['probs'] = results['probs'][results['ids']]
+      ids = sample(results['probs'], hps.batch_size*2) # note batch_size=beam_size in decode mode
+      results['ids'] = results['ids'][ids]
+      results['probs'] = results['probs'][ids]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
