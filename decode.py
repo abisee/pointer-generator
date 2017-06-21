@@ -95,28 +95,35 @@ class BeamSearchDecoder(object):
       article_withunks = data.show_art_oovs(original_article, self._vocab) # string
       abstract_withunks = data.show_abs_oovs(original_abstract, self._vocab, (batch.art_oovs[0] if FLAGS.pointer_gen else None)) # string
 
-      # Run beam search to get best Hypothesis
-      best_hyp = beam_search.run_beam_search(self._sess, self._model, self._vocab, batch)
+      tf.logging.info('ARTICLE:  %s', article_withunks)
+      tf.logging.info('REFERENCE SUMMARY: %s', abstract_withunks)
+      for trial in range(int(FLAGS.ntrials)):
+        # Run beam search to get best Hypothesis
+        best_hyp = beam_search.run_beam_search(self._sess, self._model, self._vocab, batch)
 
-      # Extract the output ids from the hypothesis and convert back to words
-      output_ids = [int(t) for t in best_hyp.tokens[1:]]
-      decoded_words = data.outputids2words(output_ids, self._vocab, (batch.art_oovs[0] if FLAGS.pointer_gen else None))
+        # Extract the output ids from the hypothesis and convert back to words
+        output_ids = [int(t) for t in best_hyp.tokens[1:]]
+        decoded_words = data.outputids2words(output_ids, self._vocab, (batch.art_oovs[0] if FLAGS.pointer_gen else None))
 
-      # Remove the [STOP] token from decoded_words, if necessary
-      try:
-        fst_stop_idx = decoded_words.index(data.STOP_DECODING) # index of the (first) [STOP] symbol
-        decoded_words = decoded_words[:fst_stop_idx]
-      except ValueError:
-        decoded_words = decoded_words
-      decoded_output = ' '.join(decoded_words) # single string
+        # Remove the [STOP] token from decoded_words, if necessary
+        try:
+          fst_stop_idx = decoded_words.index(data.STOP_DECODING) # index of the (first) [STOP] symbol
+          decoded_words = decoded_words[:fst_stop_idx]
+        except ValueError:
+          decoded_words = decoded_words
+        decoded_output = ' '.join(decoded_words) # single string
 
-      if FLAGS.single_pass:
-        self.write_for_rouge(original_abstract_sents, decoded_words, counter) # write ref summary and decoded summary to file, to eval with pyrouge later
-        counter += 1 # this is how many examples we've decoded
-      else:
-        print_results(article_withunks, abstract_withunks, decoded_output) # log output to screen
-        self.write_for_attnvis(article_withunks, abstract_withunks, decoded_words, best_hyp.attn_dists, best_hyp.p_gens) # write info to .json file for visualization tool
+        if FLAGS.single_pass:
+          self.write_for_rouge(original_abstract_sents, decoded_words, counter) # write ref summary and decoded summary to file, to eval with pyrouge later
+          counter += 1 # this is how many examples we've decoded
+          break
+        else:
+          tf.logging.info('GENERATED SUMMARY: %.2f %s', np.mean(best_hyp.log_probs), decoded_output)
+          if int(FLAGS.ntrials) == 1:
+            # print_results(article_withunks, abstract_withunks, decoded_output) # log output to screen
+            self.write_for_attnvis(article_withunks, abstract_withunks, decoded_words, best_hyp.attn_dists, best_hyp.p_gens) # write info to .json file for visualization tool
 
+      if not FLAGS.single_pass:
         # Check if SECS_UNTIL_NEW_CKPT has elapsed; if so return so we can load a new checkpoint
         t1 = time.time()
         if t1-t0 > SECS_UNTIL_NEW_CKPT:
