@@ -152,7 +152,9 @@ def run_beam_search(sess, model, vocab, batch):
     # Filter and collect any hypotheses that have produced the end token.
     hyps = [] # will contain hypotheses for the next step
     for h in all_hyps: # in order of most likely h
-      if h.latest_token == vocab.word2id(data.STOP_DECODING): # if stop token is reached...
+      if h.latest_token == vocab.word2id(data.UNKNOWN_TOKEN):  # skip UNKOWN
+          continue
+      elif h.latest_token == vocab.word2id(data.STOP_DECODING): # if stop token is reached...
         # If this hypothesis is sufficiently long, put in results. Otherwise discard.
         if steps >= FLAGS.min_dec_steps:
           results.append(h)
