@@ -78,7 +78,7 @@ class Hypothesis(object):
     return self.log_prob / len(self.tokens)
 
 
-def run_beam_search(sess, model, vocab, batch):
+def run_beam_search(sess, model, vocab, batch, previous_best_hyps):
   """Performs beam search decoding on the given example.
 
   Args:
@@ -125,10 +125,16 @@ def run_beam_search(sess, model, vocab, batch):
     num_orig_hyps = 1 if steps == 0 else len(hyps) # On the first step, we only had one original hypothesis (the initial hypothesis). On subsequent steps, all original hypotheses are distinct.
     for i in xrange(num_orig_hyps):
       h, new_state, attn_dist, p_gen, new_coverage_i = hyps[i], new_states[i], attn_dists[i], p_gens[i], new_coverage[i]  # take the ith hypothesis and new decoder state info
-      for j in xrange(FLAGS.beam_size * 2):  # for each of the top 2*beam_size hyps:
+      n = len(h.tokens)
+      for j in xrange(FLAGS.topk):  # for each of the top 2*beam_size hyps:
+        token = topk_ids[i, j]
+        score = topk_log_probs[i, j]
+        if FLAGS.dbs_lambda:
+          if token in [p.tokens[n] for p in previous_best_hyps if n < len(p.tokens)]:
+            score -= FLAGS.dbs_lambda
         # Extend the ith hypothesis with the jth option
-        new_hyp = h.extend(token=topk_ids[i, j],
-                           log_prob=topk_log_probs[i, j],
+        new_hyp = h.extend(token=token,
+                           log_prob=score,
                            state=new_state,
                            attn_dist=attn_dist,
                            p_gen=p_gen,

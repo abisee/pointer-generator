@@ -23,7 +23,6 @@ import tensorflow as tf
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
 EPS = 1e-8
-TEMPERATURE_TOP = 1000
 FLAGS = tf.app.flags.FLAGS
 
 class SummarizationModel(object):
@@ -280,10 +279,7 @@ class SummarizationModel(object):
       # We run decode beam search mode one decoder step at a time
       assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
       log_dists = log_dists[0]
-      if hps.temperature is None:
-        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
-      else:
-        self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, TEMPERATURE_TOP) # note batch_size=beam_size in decode mode
+      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.topk) # note batch_size=beam_size in decode mode
 
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""

@@ -97,9 +97,12 @@ class BeamSearchDecoder(object):
 
       tf.logging.info('ARTICLE:  %s', article_withunks)
       tf.logging.info('REFERENCE SUMMARY: %s', abstract_withunks)
+
+      all_best_hyp = []
       for trial in range(int(FLAGS.ntrials)):
         # Run beam search to get best Hypothesis
-        best_hyp = beam_search.run_beam_search(self._sess, self._model, self._vocab, batch)
+        best_hyp = beam_search.run_beam_search(self._sess, self._model, self._vocab, batch, all_best_hyp)
+        all_best_hyp.append(best_hyp)
 
         # Extract the output ids from the hypothesis and convert back to words
         output_ids = [int(t) for t in best_hyp.tokens[1:]]

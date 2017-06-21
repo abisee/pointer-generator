@@ -64,8 +64,10 @@ tf.app.flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator
 tf.app.flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
 tf.app.flags.DEFINE_float('cov_loss_wt', 1.0, 'Weight of coverage loss (lambda in the paper). If zero, then no incentive to minimize coverage loss.')
 tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
-tf.app.flags.DEFINE_float('temperature', None, 'Beam search temperature. If None take top results')
+tf.app.flags.DEFINE_float('temperature', None, 'When decoding, Beam search temperature. If None take top results')
 tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
+tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
+tf.app.flags.DEFINE_float('dbs_lambda', None, 'When decoding, Penality for having a beam with same token as another beam')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -248,13 +250,17 @@ def main(unused_argv):
   # On each step, we have beam_size-many hypotheses in the beam, so we need to make a batch of these hypotheses.
   if FLAGS.mode == 'decode':
     FLAGS.batch_size = FLAGS.beam_size
+    if FLAGS.topk is None and FLAGS.temperature is not None:
+      FLAGS.topk = 100
+    else:
+      FLAGS.topk = FLAGS.batch_size*2
 
   # If single_pass=True, check we're in decode mode
   if FLAGS.single_pass and FLAGS.mode!='decode':
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk']
   hps_dict = {}
   for key,val in FLAGS.__flags.iteritems(): # for each flag
     if key in hparam_list: # if it's in the list
