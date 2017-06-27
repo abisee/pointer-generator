@@ -245,7 +245,7 @@ class SummarizationModel(object):
         log_dists = [tf.log(dist + EPS) for dist in vocab_dists]
 
 
-      if hps.mode in ['train', 'eval']:
+      if hps.mode in ['train', 'eval', 'flip']:
         # Calculate the loss
         with tf.variable_scope('loss'):
           if FLAGS.pointer_gen: # calculate loss from log_dists
@@ -279,6 +279,11 @@ class SummarizationModel(object):
       # We run decode beam search mode one decoder step at a time
       assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
       log_dists = log_dists[0]
+      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.topk) # note batch_size=beam_size in decode mode
+    if hps.mode == "flip" or (hps.mode == "train" and hps.flip):
+      # for flipping use only decoder output without pointer
+      if FLAGS.pointer_gen:
+        log_dists = [tf.log(dist + EPS) for dist in vocab_dists]
       self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.topk) # note batch_size=beam_size in decode mode
 
   def _add_train_op(self):
@@ -338,6 +343,17 @@ class SummarizationModel(object):
     }
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss
+    return sess.run(to_return, feed_dict)
+
+  def run_decode(self, sess, batch):
+    feed_dict = self._make_feed_dict(batch)
+    to_return = {
+      "ids": self._topk_ids,
+      "probs": self._topk_log_probs,
+      'summaries': self._summaries,
+      'loss': self._loss,
+      'global_step': self.global_step,
+    }
     return sess.run(to_return, feed_dict)
 
   def run_encoder(self, sess, batch):

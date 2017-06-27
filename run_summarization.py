@@ -27,6 +27,8 @@ from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
 import util
+import data
+import random
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -68,6 +70,7 @@ tf.app.flags.DEFINE_float('temperature', None, 'When decoding, Beam search tempe
 tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
 tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
 tf.app.flags.DEFINE_float('dbs_lambda', None, 'When decoding, Penality for having a beam with same token as another beam')
+tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -159,6 +162,34 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
     while True: # repeats until interrupted
       batch = batcher.next_batch()
 
+      if FLAGS.flip:
+        t0 = time.time()
+        results = model.run_decode(sess, batch)
+        t1 = time.time()
+        tf.logging.info('seconds for batch flip: %.2f', t1 - t0)
+        stop_id = model._vocab.word2id(data.STOP_DECODING)
+        start_id = model._vocab.word2id(data.START_DECODING)
+        pad_id = model._vocab.word2id(data.PAD_TOKEN)
+
+        for b in range(len(batch.dec_batch)):
+          fst_stop_idx = np.where(batch.target_batch[b, :] == stop_id)[0]
+          if len(fst_stop_idx):
+            fst_stop_idx = fst_stop_idx[0]
+          else:
+            fst_stop_idx = len(batch.target_batch[b, :])
+
+          output_ids = [int(x) for x in results['ids'][::fst_stop_idx, b, 0]]
+          output_ids = output_ids[:fst_stop_idx]
+          nflips = int(fst_stop_idx * FLAGS.flip + 0.5)
+
+          flips = sorted(random.sample(xrange(fst_stop_idx), nflips))
+          for input_idx in flips:
+            if output_ids[input_idx]  in [stop_id, start_id, pad_id]:
+              continue
+            if batch.dec_batch[b, input_idx+1] in [stop_id, start_id, pad_id]:
+              continue
+            batch.dec_batch[b, input_idx+1] = output_ids[input_idx]
+
       tf.logging.info('running training step...')
       t0=time.time()
       results = model.run_train_step(sess, batch)
@@ -179,6 +210,45 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
       if train_step % 100 == 0: # flush the summary writer every so often
         summary_writer.flush()
 
+def run_flip(model, batcher, vocab):
+  """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
+  model.build_graph() # build the graph
+  saver = tf.train.Saver(max_to_keep=3) # we will keep 3 best checkpoints at a time
+  sess = tf.Session(config=util.get_config())
+
+  while True:
+    _ = util.load_ckpt(saver, sess) # load a new checkpoint
+    batch = batcher.next_batch() # get the next batch
+
+    # run eval on the batch
+    t0=time.time()
+    # results = model.run_eval_step(sess, batch)
+    results = model.run_decode(sess, batch)
+    t1=time.time()
+    tf.logging.info('seconds for batch: %.2f', t1-t0)
+    # output_ids = [int(t) for t in best_hyp.tokens[1:]]
+    # decoded_words = data.outputids2words(output_ids, self._vocab, (
+    # batch.art_oovs[0] if FLAGS.pointer_gen else None))
+    stop_id = model._vocab.word2id('[STOP]')
+
+    for b in range(len(batch.original_abstracts)):
+      original_abstract = batch.original_abstracts[b] # string
+      fst_stop_idx = np.where(batch.target_batch[b,:] == stop_id)[0]
+      if len(fst_stop_idx):
+        fst_stop_idx = fst_stop_idx[0]
+      else:
+        fst_stop_idx = len(batch.target_batch[b,:])
+
+      abstract_withunks = data.show_abs_oovs(original_abstract, model._vocab, None)  # string
+      tf.logging.info('REFERENCE SUMMARY: %s', abstract_withunks)
+
+      output_ids = [int(x) for x in results['ids'][:, b, 0]]
+      output_ids = output_ids[:fst_stop_idx]
+      decoded_words = data.outputids2words(output_ids, model._vocab, None)
+      decoded_output = ' '.join(decoded_words)
+      tf.logging.info('GENERATED SUMMARY: %s', decoded_output)
+      loss = results['loss']
+      tf.logging.info('loss %.2f max flip %d dec %d target %d', loss, max(output_ids), batch.dec_batch.max(), batch.target_batch.max())
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
@@ -254,13 +324,17 @@ def main(unused_argv):
       FLAGS.topk = 100
     else:
       FLAGS.topk = FLAGS.batch_size*2
+  elif FLAGS.mode == 'flip' or FLAGS.flip:
+    FLAGS.topk = 1
+  elif FLAGS.topk is not None:
+    FLAGS.topk = int(FLAGS.topk)
 
   # If single_pass=True, check we're in decode mode
   if FLAGS.single_pass and FLAGS.mode!='decode':
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
   hps_dict = {}
   for key,val in FLAGS.__flags.iteritems(): # for each flag
     if key in hparam_list: # if it's in the list
@@ -279,6 +353,9 @@ def main(unused_argv):
   elif hps.mode == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)
+  elif hps.mode == 'flip':
+    model = SummarizationModel(hps, vocab)
+    run_flip(model, batcher, vocab)
   elif hps.mode == 'decode':
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
