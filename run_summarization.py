@@ -178,8 +178,7 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
           else:
             fst_stop_idx = len(batch.target_batch[b, :])
 
-          output_ids = [int(x) for x in results['ids'][::fst_stop_idx, b, 0]]
-          output_ids = output_ids[:fst_stop_idx]
+          output_ids = [int(x) for x in results['ids'][:fst_stop_idx, b, 0]]
           nflips = int(fst_stop_idx * FLAGS.flip + 0.5)
 
           flips = sorted(random.sample(xrange(fst_stop_idx), nflips))
