@@ -27,6 +27,14 @@ This will create a subdirectory of your specified log_root called `myexperiment`
 
 **Increasing sequence length during training**: Note that to obtain the results described in the paper, we increase the values of `max_enc_steps` and `max_dec_steps` in stages throughout training (mostly so we can perform quicker iterations during early stages of training). If you wish to do the same, start with small values of `max_enc_steps` and `max_dec_steps`, then interrupt and restart the job with larger values when you want to increase them.
 
+#### Run training with flip
+By default training is done with "teacher forcing" in which the input to each step of the decoder is
+the target word of the previous step.
+To improve training you can set a random fraction of the steps to be replaced with
+the predicted word (max prob.) of the previous step. You can do this with `--flip=<prac>`
+
+If you want to see what are all the predicted words for all steps, run with `--mode=flip`
+
 ### Run (concurrent) eval
 You may want to run a concurrent evaluation job, that runs your model on the validation set and logs the loss. To do this, run:
 
