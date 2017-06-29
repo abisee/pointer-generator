@@ -40,6 +40,7 @@ the predicted word of the previous step. You can do this with `--flip=<prac>`
 
 You can increase `flip` in a scheduled way. First train without any flip and then
 increade flip to `0.2`
+(https://arxiv.org/abs/1506.03099)
 
 For debugging, if you want to see what are all the predicted words for all steps, run with `--mode=flip`
 
@@ -75,7 +76,7 @@ specificy that the `topk` result are randomly selected using `--temperature` par
 You can request multiple results to be generated for each article with `--ntrials`.
 You can force the different trials to be different using `--dbs_lambda` (e.g. `11`)
 to add
-a penality for having a beam with same token as another beam
+a penality for having a beam with same token as another beam. (https://arxiv.org/pdf/1610.02424.pdf)
 
 ### Evaluate with ROUGE
 `decode.py` uses the Python package [`pyrouge`](https://pypi.python.org/pypi/pyrouge) to run ROUGE evaluation. `pyrouge` provides an easier-to-use interface for the official Perl ROUGE package, which you must install for `pyrouge` to work. Here are some useful instructions on how to do this:
