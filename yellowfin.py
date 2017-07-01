@@ -55,10 +55,10 @@ class YFOptimizer(object):
     self._moving_averager = None
     
     # for global step counting    
-    self._global_step = tf.Variable(0, trainable=False)
+    # self._global_step = tf.Variable(0, trainable=False)
 
     # for conditional tuning
-    self._do_tune = tf.greater(self._global_step, tf.constant(0) )
+    # self._do_tune = tf.greater(self._global_step, tf.constant(0) )
 
     self._zero_debias = zero_debias
 
@@ -198,7 +198,9 @@ class YFOptimizer(object):
     return assign_hyper_op
 
 
-  def apply_gradients(self, grads_tvars):
+  def apply_gradients(self, grads_tvars, global_step, name):
+    self._global_step = global_step
+    self._do_tune = tf.greater(self._global_step, tf.constant(0))
     self._grads, self._tvars = zip(*grads_tvars)
 
     with tf.variable_scope("apply_updates"):
