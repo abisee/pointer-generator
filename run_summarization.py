@@ -71,6 +71,7 @@ tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
 tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
 tf.app.flags.DEFINE_float('dbs_lambda', None, 'When decoding, Penality for having a beam with same token as another beam')
 tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
+tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam, yellowfin --lr=.002')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -333,7 +334,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
+  hparam_list = ['mode', 'lr', 'optimizer', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
   hps_dict = {}
   for key,val in FLAGS.__flags.iteritems(): # for each flag
     if key in hparam_list: # if it's in the list
