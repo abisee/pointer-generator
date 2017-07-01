@@ -177,7 +177,7 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
           if len(fst_stop_idx):
             fst_stop_idx = fst_stop_idx[0]
           else:
-            fst_stop_idx = len(batch.target_batch[b, :])
+            fst_stop_idx = len(batch.target_batch[b, :])-1
 
           output_ids = [int(x) for x in results['ids'][:fst_stop_idx, b, 0]]
           nflips = int(fst_stop_idx * FLAGS.flip + 0.5)
