@@ -307,7 +307,7 @@ class SummarizationModel(object):
       optimizer = tf.train.AdamOptimizer(self._hps.lr)
     elif self._hps.optimizer == 'yellowfin':
       from yellowfin import YFOptimizer
-      optimizer = YFOptimizer(lr_factor=self._hps)
+      optimizer = YFOptimizer(lr_factor=self._hps.lr)
     with tf.device("/gpu:0"):
       self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
 
