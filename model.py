@@ -308,6 +308,8 @@ class SummarizationModel(object):
     elif self._hps.optimizer == 'yellowfin':
       from yellowfin import YFOptimizer
       optimizer = YFOptimizer(lr_factor=self._hps.lr)
+    elif self._hps.optimizer == 'sgd':
+      optimizer = tf.train.MomentumOptimizer(self._hps.lr, 0.9)
     with tf.device("/gpu:0"):
       self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
 

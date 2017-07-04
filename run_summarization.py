@@ -71,7 +71,7 @@ tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
 tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
 tf.app.flags.DEFINE_float('dbs_lambda', None, 'When ntrials>1, Penality for having a beam with same token as another beam. Try 2')
 tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
-tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (lr is YF\'s lr_decay, try lr=1)')
+tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (lr is YF\'s lr_decay, try lr=1), sgd (with momentum set to 0.9)')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
