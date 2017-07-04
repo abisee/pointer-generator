@@ -19,6 +19,7 @@
 import tensorflow as tf
 import numpy as np
 import data
+import copy
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -142,7 +143,7 @@ def run_beam_search(sess, model, vocab, batch, previous_best_hyps):
         all_hyps.append(new_hyp)
 
     temperature = model._hps.temperature
-    if temperature is None:
+    if temperature is None or temperature <= 0.:
       all_hyps = sort_hyps(all_hyps)
     else:
       n = min(FLAGS.beam_size*2, len(all_hyps))
@@ -169,13 +170,17 @@ def run_beam_search(sess, model, vocab, batch, previous_best_hyps):
       if len(hyps) == FLAGS.beam_size or len(results) == FLAGS.beam_size:
         # Once we've collected beam_size-many hypotheses for the next step, or beam_size-many complete hypotheses, stop.
         break
+    if len(hyps) == 0:
+      break
+    while len(hyps) < FLAGS.beam_size:
+      hyps.append(copy.copy(hyps[-1]))
 
     steps += 1
 
   # At this point, either we've got beam_size results, or we've reached maximum decoder steps
 
-  if len(results)==0: # if we don't have any complete results, add all current hypotheses (incomplete summaries) to results
-    results = hyps
+  if len(results)==0: # we don't have any complete result
+    return None
 
   # Sort hypotheses by average log probability
   hyps_sorted = sort_hyps(results)
