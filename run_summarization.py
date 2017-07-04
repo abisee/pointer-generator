@@ -66,12 +66,12 @@ tf.app.flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator
 tf.app.flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
 tf.app.flags.DEFINE_float('cov_loss_wt', 1.0, 'Weight of coverage loss (lambda in the paper). If zero, then no incentive to minimize coverage loss.')
 tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
-tf.app.flags.DEFINE_float('temperature', None, 'When decoding, Beam search temperature. If None take top results')
+tf.app.flags.DEFINE_float('temperature', None, 'When decoding, Beam search temperature. If None take top result otherwise randomly draw from topk=100 results. Try 0.1')
 tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
 tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
-tf.app.flags.DEFINE_float('dbs_lambda', None, 'When decoding, Penality for having a beam with same token as another beam')
+tf.app.flags.DEFINE_float('dbs_lambda', None, 'When ntrials>1, Penality for having a beam with same token as another beam. Try 2')
 tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
-tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (try lr=1)')
+tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (lr is YF\'s lr_decay, try lr=1)')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -321,7 +321,7 @@ def main(unused_argv):
   if FLAGS.mode == 'decode':
     FLAGS.batch_size = FLAGS.beam_size
     if FLAGS.topk is None and FLAGS.temperature is not None:
-      FLAGS.topk = 100
+      FLAGS.topk = 100  # TODO this is a hacky and slow solution to the problem
     else:
       FLAGS.topk = FLAGS.batch_size*2
   elif FLAGS.mode == 'flip' or FLAGS.flip:
