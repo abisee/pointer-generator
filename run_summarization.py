@@ -29,6 +29,7 @@ from decode import BeamSearchDecoder
 import util
 import data
 import random
+from tensorflow.python.ops import variables
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -43,6 +44,7 @@ tf.app.flags.DEFINE_boolean('single_pass', False, 'For decode mode only. If True
 # Where to save output
 tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
+tf.app.flags.DEFINE_string('pre_path', None, 'Full path to a previous experiment to start from it can have a different optimization method. e.g. <log_root>/<prev_exp_name>/train/model.ckpt-<number>')
 
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
@@ -72,6 +74,7 @@ tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give
 tf.app.flags.DEFINE_float('dbs_lambda', None, 'When ntrials>1, Penality for having a beam with same token as another beam. Try 2')
 tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
 tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (lr is YF\'s lr_decay, try lr=1), sgd (with momentum set to 0.9)')
+tf.app.flags.DEFINE_string('gpu', 'gpu:0', 'Which GPU to use')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -130,13 +133,26 @@ def setup_training(model, batcher):
   train_dir = os.path.join(FLAGS.log_root, "train")
   if not os.path.exists(train_dir): os.makedirs(train_dir)
 
-  default_device = tf.device('/gpu:0')
+  default_device = tf.device('/%s'%FLAGS.gpu)
   with default_device:
     model.build_graph() # build the graph
     if FLAGS.convert_to_coverage_model:
       assert FLAGS.coverage, "To convert your non-coverage model to a coverage model, run with convert_to_coverage_model=True and coverage=True"
       convert_to_coverage_model()
     saver = tf.train.Saver(max_to_keep=1) # only keep 1 checkpoint at a time
+    if FLAGS.pre_path is not None:
+      # https://www.tensorflow.org/programmers_guide/supervisor
+      # remove variables that belong to optimization
+      var_list = variables._all_saveable_objects()
+      var_list = [v for v in var_list
+                  if not any(v.op.name.endswith(s)
+                    for s in ['Momentum',
+                              'YF_lr', 'YF_lr_factor', 'YF_mu', "YF_clip_thresh"])]  # eg "seq2seq/embedding/embedding/Momentum"
+      pre_train_saver = tf.train.Saver(var_list)
+      def load_pretrain(sess):
+        pre_train_saver.restore(sess, FLAGS.pre_path)
+    else:
+      load_pretrain = None
 
   sv = tf.train.Supervisor(logdir=train_dir,
                      is_chief=True,
@@ -144,7 +160,8 @@ def setup_training(model, batcher):
                      summary_op=None,
                      save_summaries_secs=60, # save summaries for tensorboard every 60 secs
                      save_model_secs=60, # checkpoint every 60 secs
-                     global_step=model.global_step)
+                     global_step=model.global_step,
+                     init_fn=load_pretrain)
   summary_writer = sv.summary_writer
   tf.logging.info("Preparing or waiting for session...")
   sess_context_manager = sv.prepare_or_wait_for_session(config=util.get_config())
@@ -334,7 +351,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'optimizer', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
+  hparam_list = ['gpu', 'mode', 'lr', 'optimizer', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
   hps_dict = {}
   for key,val in FLAGS.__flags.iteritems(): # for each flag
     if key in hparam_list: # if it's in the list
