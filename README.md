@@ -60,5 +60,12 @@ If you want to run evaluation on the entire validation or test set and get ROUGE
 
 **Note:** As of 18th May 2017 the [website](http://berouge.com/) for the official Perl package appears to be down. Unfortunately you need to download a directory called `ROUGE-1.5.5` from there. As an alternative, it seems that you can get that directory from [here](https://github.com/andersjo/pyrouge) (however, the version of `pyrouge` in that repo appears to be outdated, so best to install `pyrouge` from the [official source](https://pypi.python.org/pypi/pyrouge)).
 
+#### Downloading Rouge perl scripts
+You can download the required perl scripts from https://github.com/summanlp/evaluation/tree/master/ROUGE-RELEASE-1.5.5 Once you download create a settings.ini file and inside that create
+```
+[pyrouge settings]
+home_dir = <dir of rouge*.pl script>
+```
+
 ### Tensorboard
 Run Tensorboard from the experiment directory (in the example above, `myexperiment`). You should be able to see data from the train and eval runs. If you select "embeddings", you should also see your word embeddings visualized.
