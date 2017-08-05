@@ -22,7 +22,7 @@ import numpy as np
 import tensorflow as tf
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
-
+EPS = 1e-8
 FLAGS = tf.app.flags.FLAGS
 
 class SummarizationModel(object):
@@ -240,12 +240,12 @@ class SummarizationModel(object):
       if FLAGS.pointer_gen:
         final_dists = self._calc_final_dist(vocab_dists, self.attn_dists)
         # Take log of final distribution
-        log_dists = [tf.log(dist) for dist in final_dists]
+        log_dists = [tf.log(dist + EPS) for dist in final_dists]
       else: # just take log of vocab_dists
-        log_dists = [tf.log(dist) for dist in vocab_dists]
+        log_dists = [tf.log(dist + EPS) for dist in vocab_dists]
 
 
-      if hps.mode in ['train', 'eval']:
+      if hps.mode in ['train', 'eval', 'flip']:
         # Calculate the loss
         with tf.variable_scope('loss'):
           if FLAGS.pointer_gen: # calculate loss from log_dists
@@ -279,8 +279,12 @@ class SummarizationModel(object):
       # We run decode beam search mode one decoder step at a time
       assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
       log_dists = log_dists[0]
-      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
-
+      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.topk) # note batch_size=beam_size in decode mode
+    if hps.mode == "flip" or (hps.mode == "train" and hps.flip):
+      # for flipping use only decoder output without pointer
+      if FLAGS.pointer_gen:
+        log_dists = [tf.log(dist + EPS) for dist in vocab_dists]
+      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.topk) # note batch_size=beam_size in decode mode
 
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""
@@ -290,15 +294,23 @@ class SummarizationModel(object):
     gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
     # Clip the gradients
-    with tf.device("/gpu:0"):
+    with tf.device("/%s"%self._hps.gpu):
       grads, global_norm = tf.clip_by_global_norm(gradients, self._hps.max_grad_norm)
 
     # Add a summary
     tf.summary.scalar('global_norm', global_norm)
 
     # Apply adagrad optimizer
-    optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
-    with tf.device("/gpu:0"):
+    if self._hps.optimizer == 'adagrad':
+      optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
+    elif self._hps.optimizer == 'adam':
+      optimizer = tf.train.AdamOptimizer(self._hps.lr)
+    elif self._hps.optimizer == 'yellowfin':
+      from yellowfin import YFOptimizer
+      optimizer = YFOptimizer(lr_factor=self._hps.lr)
+    elif self._hps.optimizer == 'sgd':
+      optimizer = tf.train.MomentumOptimizer(self._hps.lr, 0.9)
+    with tf.device("/%s"%self._hps.gpu):
       self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
 
 
@@ -307,7 +319,7 @@ class SummarizationModel(object):
     tf.logging.info('Building graph...')
     t0 = time.time()
     self._add_placeholders()
-    with tf.device("/gpu:0"):
+    with tf.device("/%s"%self._hps.gpu):
       self._add_seq2seq()
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
     if self._hps.mode == 'train':
@@ -339,6 +351,17 @@ class SummarizationModel(object):
     }
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss
+    return sess.run(to_return, feed_dict)
+
+  def run_decode(self, sess, batch):
+    feed_dict = self._make_feed_dict(batch)
+    to_return = {
+      "ids": self._topk_ids,
+      "probs": self._topk_log_probs,
+      'summaries': self._summaries,
+      'loss': self._loss,
+      'global_step': self.global_step,
+    }
     return sess.run(to_return, feed_dict)
 
   def run_encoder(self, sess, batch):
@@ -381,6 +404,7 @@ class SummarizationModel(object):
       p_gens: Generation probabilities for this step. A list length beam_size. List of None if in baseline mode.
       new_coverage: Coverage vectors for this step. A list of arrays. List of None if coverage is not turned on.
     """
+    hps = self._hps
 
     beam_size = len(dec_init_states)
 

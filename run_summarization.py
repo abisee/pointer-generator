@@ -27,6 +27,9 @@ from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
 import util
+import data
+import random
+from tensorflow.python.ops import variables
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -41,6 +44,7 @@ tf.app.flags.DEFINE_boolean('single_pass', False, 'For decode mode only. If True
 # Where to save output
 tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
+tf.app.flags.DEFINE_string('pre_path', None, 'Full path to a previous experiment to start from it can have a different optimization method. e.g. <log_root>/<prev_exp_name>/train/model.ckpt-<number>')
 
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
@@ -64,6 +68,13 @@ tf.app.flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator
 tf.app.flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
 tf.app.flags.DEFINE_float('cov_loss_wt', 1.0, 'Weight of coverage loss (lambda in the paper). If zero, then no incentive to minimize coverage loss.')
 tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
+tf.app.flags.DEFINE_float('temperature', None, 'When decoding, Beam search temperature. If None take top result otherwise randomly draw from topk=100 results. Try 0.1')
+tf.app.flags.DEFINE_float('ntrials', 1, 'How many decoding to perform')
+tf.app.flags.DEFINE_float('topk', None, 'When decoding, How many results to give from the model')
+tf.app.flags.DEFINE_float('dbs_lambda', None, 'When ntrials>1, Penality for having a beam with same token as another beam. Try 2')
+tf.app.flags.DEFINE_float('flip', None, 'When training, what part of the decoder input should be flipped with decoder output from previous step')
+tf.app.flags.DEFINE_string('optimizer', 'adagrad', 'Which optimization method to use: adagrad (default), adam (try lr=2e-4), yellowfin (lr is YF\'s lr_decay, try lr=1), sgd (with momentum set to 0.9)')
+tf.app.flags.DEFINE_string('gpu', 'gpu:0', 'Which GPU to use')
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -122,13 +133,26 @@ def setup_training(model, batcher):
   train_dir = os.path.join(FLAGS.log_root, "train")
   if not os.path.exists(train_dir): os.makedirs(train_dir)
 
-  default_device = tf.device('/cpu:0')
+  default_device = tf.device('/%s'%FLAGS.gpu)
   with default_device:
     model.build_graph() # build the graph
     if FLAGS.convert_to_coverage_model:
       assert FLAGS.coverage, "To convert your non-coverage model to a coverage model, run with convert_to_coverage_model=True and coverage=True"
       convert_to_coverage_model()
     saver = tf.train.Saver(max_to_keep=1) # only keep 1 checkpoint at a time
+    if FLAGS.pre_path is not None:
+      # https://www.tensorflow.org/programmers_guide/supervisor
+      # remove variables that belong to optimization
+      var_list = variables._all_saveable_objects()
+      var_list = [v for v in var_list
+                  if not any(v.op.name.endswith(s)
+                    for s in ['Momentum',
+                              'YF_lr', 'YF_lr_factor', 'YF_mu', "YF_clip_thresh"])]  # eg "seq2seq/embedding/embedding/Momentum"
+      pre_train_saver = tf.train.Saver(var_list)
+      def load_pretrain(sess):
+        pre_train_saver.restore(sess, FLAGS.pre_path)
+    else:
+      load_pretrain = None
 
   sv = tf.train.Supervisor(logdir=train_dir,
                      is_chief=True,
@@ -136,7 +160,8 @@ def setup_training(model, batcher):
                      summary_op=None,
                      save_summaries_secs=60, # save summaries for tensorboard every 60 secs
                      save_model_secs=60, # checkpoint every 60 secs
-                     global_step=model.global_step)
+                     global_step=model.global_step,
+                     init_fn=load_pretrain)
   summary_writer = sv.summary_writer
   tf.logging.info("Preparing or waiting for session...")
   sess_context_manager = sv.prepare_or_wait_for_session(config=util.get_config())
@@ -154,6 +179,33 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
   with sess_context_manager as sess:
     while True: # repeats until interrupted
       batch = batcher.next_batch()
+
+      if FLAGS.flip:
+        t0 = time.time()
+        results = model.run_decode(sess, batch)
+        t1 = time.time()
+        tf.logging.info('seconds for batch flip: %.2f', t1 - t0)
+        stop_id = model._vocab.word2id(data.STOP_DECODING)
+        start_id = model._vocab.word2id(data.START_DECODING)
+        pad_id = model._vocab.word2id(data.PAD_TOKEN)
+
+        for b in range(len(batch.dec_batch)):
+          fst_stop_idx = np.where(batch.target_batch[b, :] == stop_id)[0]
+          if len(fst_stop_idx):
+            fst_stop_idx = fst_stop_idx[0]
+          else:
+            fst_stop_idx = len(batch.target_batch[b, :])-1
+
+          output_ids = [int(x) for x in results['ids'][:fst_stop_idx, b, 0]]
+          nflips = int(fst_stop_idx * FLAGS.flip + 0.5)
+
+          flips = sorted(random.sample(xrange(fst_stop_idx), nflips))
+          for input_idx in flips:
+            if output_ids[input_idx]  in [stop_id, start_id, pad_id]:
+              continue
+            if batch.dec_batch[b, input_idx+1] in [stop_id, start_id, pad_id]:
+              continue
+            batch.dec_batch[b, input_idx+1] = output_ids[input_idx]
 
       tf.logging.info('running training step...')
       t0=time.time()
@@ -175,6 +227,45 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
       if train_step % 100 == 0: # flush the summary writer every so often
         summary_writer.flush()
 
+def run_flip(model, batcher, vocab):
+  """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
+  model.build_graph() # build the graph
+  saver = tf.train.Saver(max_to_keep=3) # we will keep 3 best checkpoints at a time
+  sess = tf.Session(config=util.get_config())
+
+  while True:
+    _ = util.load_ckpt(saver, sess) # load a new checkpoint
+    batch = batcher.next_batch() # get the next batch
+
+    # run eval on the batch
+    t0=time.time()
+    # results = model.run_eval_step(sess, batch)
+    results = model.run_decode(sess, batch)
+    t1=time.time()
+    tf.logging.info('seconds for batch: %.2f', t1-t0)
+    # output_ids = [int(t) for t in best_hyp.tokens[1:]]
+    # decoded_words = data.outputids2words(output_ids, self._vocab, (
+    # batch.art_oovs[0] if FLAGS.pointer_gen else None))
+    stop_id = model._vocab.word2id('[STOP]')
+
+    for b in range(len(batch.original_abstracts)):
+      original_abstract = batch.original_abstracts[b] # string
+      fst_stop_idx = np.where(batch.target_batch[b,:] == stop_id)[0]
+      if len(fst_stop_idx):
+        fst_stop_idx = fst_stop_idx[0]
+      else:
+        fst_stop_idx = len(batch.target_batch[b,:])
+
+      abstract_withunks = data.show_abs_oovs(original_abstract, model._vocab, None)  # string
+      tf.logging.info('REFERENCE SUMMARY: %s', abstract_withunks)
+
+      output_ids = [int(x) for x in results['ids'][:, b, 0]]
+      output_ids = output_ids[:fst_stop_idx]
+      decoded_words = data.outputids2words(output_ids, model._vocab, None)
+      decoded_output = ' '.join(decoded_words)
+      tf.logging.info('GENERATED SUMMARY: %s', decoded_output)
+      loss = results['loss']
+      tf.logging.info('loss %.2f max flip %d dec %d target %d', loss, max(output_ids), batch.dec_batch.max(), batch.target_batch.max())
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
@@ -246,13 +337,21 @@ def main(unused_argv):
   # On each step, we have beam_size-many hypotheses in the beam, so we need to make a batch of these hypotheses.
   if FLAGS.mode == 'decode':
     FLAGS.batch_size = FLAGS.beam_size
+    if FLAGS.topk is None and FLAGS.temperature is not None:
+      FLAGS.topk = 100  # TODO this is a hacky and slow solution to the problem
+    else:
+      FLAGS.topk = FLAGS.batch_size*2
+  elif FLAGS.mode == 'flip' or FLAGS.flip:
+    FLAGS.topk = 1
+  elif FLAGS.topk is not None:
+    FLAGS.topk = int(FLAGS.topk)
 
   # If single_pass=True, check we're in decode mode
   if FLAGS.single_pass and FLAGS.mode!='decode':
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen']
+  hparam_list = ['gpu', 'mode', 'lr', 'optimizer', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'temperature', 'topk', 'flip']
   hps_dict = {}
   for key,val in FLAGS.__flags.iteritems(): # for each flag
     if key in hparam_list: # if it's in the list
@@ -271,6 +370,9 @@ def main(unused_argv):
   elif hps.mode == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)
+  elif hps.mode == 'flip':
+    model = SummarizationModel(hps, vocab)
+    run_flip(model, batcher, vocab)
   elif hps.mode == 'decode':
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
