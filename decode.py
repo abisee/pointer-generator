@@ -51,7 +51,7 @@ class BeamSearchDecoder(object):
     self._sess = tf.Session(config=util.get_config())
 
     # Load an initial checkpoint to use for decoding
-    ckpt_path = util.load_ckpt(self._saver, self._sess)
+    ckpt_path = util.load_ckpt(self._saver, self._sess, load_best=True)
 
     if FLAGS.single_pass:
       # Make a descriptive decode directory name
