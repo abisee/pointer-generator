@@ -15,7 +15,10 @@
 # ==============================================================================
 
 """This file contains code to run beam search decoding, including running ROUGE evaluation and producing JSON datafiles for the in-browser attention visualizer, which can be found here https://github.com/abisee/attn_vis"""
+from __future__ import print_function
+from __future__ import absolute_import
 
+from builtins import object
 import os
 import time
 import tensorflow as tf
@@ -25,7 +28,6 @@ import json
 import pyrouge
 import util
 import logging
-import numpy as np
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -191,11 +193,11 @@ class BeamSearchDecoder(object):
 
 def print_results(article, abstract, decoded_output):
   """Prints the article, the reference summmary and the decoded summary to screen"""
-  print ""
+  print("")
   tf.logging.info('ARTICLE:  %s', article)
   tf.logging.info('REFERENCE SUMMARY: %s', abstract)
   tf.logging.info('GENERATED SUMMARY: %s', decoded_output)
-  print ""
+  print("")
 
 
 def make_html_safe(s):

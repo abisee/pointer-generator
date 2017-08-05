@@ -15,7 +15,12 @@
 # ==============================================================================
 
 """This file contains code to run beam search decoding"""
+from __future__ import division
+from __future__ import absolute_import
 
+from builtins import range
+from builtins import object
+from past.utils import old_div
 import tensorflow as tf
 import numpy as np
 import data
@@ -75,7 +80,7 @@ class Hypothesis(object):
   @property
   def avg_log_prob(self):
     # normalize log probability by number of tokens (otherwise longer sequences always have lower probability)
-    return self.log_prob / len(self.tokens)
+    return old_div(self.log_prob, len(self.tokens))
 
 
 def run_beam_search(sess, model, vocab, batch):
@@ -102,13 +107,13 @@ def run_beam_search(sess, model, vocab, batch):
                      attn_dists=[],
                      p_gens=[],
                      coverage=np.zeros([batch.enc_batch.shape[1]]) # zero vector of length attention_length
-                     ) for _ in xrange(FLAGS.beam_size)]
+                     ) for _ in range(FLAGS.beam_size)]
   results = [] # this will contain finished hypotheses (those that have emitted the [STOP] token)
 
   steps = 0
   while steps < FLAGS.max_dec_steps and len(results) < FLAGS.beam_size:
     latest_tokens = [h.latest_token for h in hyps] # latest token produced by each hypothesis
-    latest_tokens = [t if t in xrange(vocab.size()) else vocab.word2id(data.UNKNOWN_TOKEN) for t in latest_tokens] # change any in-article temporary OOV ids to [UNK] id, so that we can lookup word embeddings
+    latest_tokens = [t if t in range(vocab.size()) else vocab.word2id(data.UNKNOWN_TOKEN) for t in latest_tokens] # change any in-article temporary OOV ids to [UNK] id, so that we can lookup word embeddings
     states = [h.state for h in hyps] # list of current decoder states of the hypotheses
     prev_coverage = [h.coverage for h in hyps] # list of coverage vectors (or None)
 
@@ -123,9 +128,9 @@ def run_beam_search(sess, model, vocab, batch):
     # Extend each hypothesis and collect them all in all_hyps
     all_hyps = []
     num_orig_hyps = 1 if steps == 0 else len(hyps) # On the first step, we only had one original hypothesis (the initial hypothesis). On subsequent steps, all original hypotheses are distinct.
-    for i in xrange(num_orig_hyps):
+    for i in range(num_orig_hyps):
       h, new_state, attn_dist, p_gen, new_coverage_i = hyps[i], new_states[i], attn_dists[i], p_gens[i], new_coverage[i]  # take the ith hypothesis and new decoder state info
-      for j in xrange(FLAGS.beam_size * 2):  # for each of the top 2*beam_size hyps:
+      for j in range(FLAGS.beam_size * 2):  # for each of the top 2*beam_size hyps:
         # Extend the ith hypothesis with the jth option
         new_hyp = h.extend(token=topk_ids[i, j],
                            log_prob=topk_log_probs[i, j],

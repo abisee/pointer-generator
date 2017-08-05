@@ -15,6 +15,8 @@
 # ==============================================================================
 
 """This is the top-level file to train, evaluate or test your summarization model"""
+from __future__ import print_function
+from __future__ import absolute_import
 
 import sys
 import time
@@ -99,21 +101,21 @@ def convert_to_coverage_model():
 
   # initialize an entire coverage model from scratch
   sess = tf.Session(config=util.get_config())
-  print "initializing everything..."
+  print("initializing everything...")
   sess.run(tf.global_variables_initializer())
 
   # load all non-coverage weights from checkpoint
   saver = tf.train.Saver([v for v in tf.global_variables() if "coverage" not in v.name and "Adagrad" not in v.name])
-  print "restoring non-coverage variables..."
+  print("restoring non-coverage variables...")
   curr_ckpt = util.load_ckpt(saver, sess)
-  print "restored."
+  print("restored.")
 
   # save this model and quit
   new_fname = curr_ckpt + '_cov_init'
-  print "saving model to %s..." % (new_fname)
+  print("saving model to %s..." % (new_fname))
   new_saver = tf.train.Saver() # this one will save all variables that now exist
   new_saver.save(sess, new_fname)
-  print "saved."
+  print("saved.")
   exit()
 
 
@@ -252,12 +254,14 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm',
+                 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt',
+                 'pointer_gen']
   hps_dict = {}
-  for key,val in FLAGS.__flags.iteritems(): # for each flag
+  for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
       hps_dict[key] = val # add it to the dict
-  hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
+  hps = namedtuple("HParams", list(hps_dict.keys()))(**hps_dict)
 
   # Create a batcher object that will create minibatches of data
   batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
@@ -265,7 +269,7 @@ def main(unused_argv):
   tf.set_random_seed(111) # a seed value for randomness
 
   if hps.mode == 'train':
-    print "creating model..."
+    print("creating model...")
     model = SummarizationModel(hps, vocab)
     setup_training(model, batcher)
   elif hps.mode == 'eval':
