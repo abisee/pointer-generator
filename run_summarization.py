@@ -161,7 +161,7 @@ def setup_training(model, batcher):
     convert_to_coverage_model()
   if FLAGS.restore_best_model:
     restore_best_model()
-  saver = tf.train.Saver(max_to_keep=1) # only keep 1 checkpoint at a time
+  saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
 
   sv = tf.train.Supervisor(logdir=train_dir,
                      is_chief=True,
