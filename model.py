@@ -39,6 +39,7 @@ class SummarizationModel(object):
     # encoder part
     self._enc_batch = tf.placeholder(tf.int32, [hps.batch_size, None], name='enc_batch')
     self._enc_lens = tf.placeholder(tf.int32, [hps.batch_size], name='enc_lens')
+    self._enc_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, None], name='enc_padding_mask')
     if FLAGS.pointer_gen:
       self._enc_batch_extend_vocab = tf.placeholder(tf.int32, [hps.batch_size, None], name='enc_batch_extend_vocab')
       self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
@@ -46,7 +47,7 @@ class SummarizationModel(object):
     # decoder part
     self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='dec_batch')
     self._target_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='target_batch')
-    self._padding_mask = tf.placeholder(tf.float32, [hps.batch_size, hps.max_dec_steps], name='padding_mask')
+    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, hps.max_dec_steps], name='dec_padding_mask')
 
     if hps.mode=="decode" and hps.coverage:
       self.prev_coverage = tf.placeholder(tf.float32, [hps.batch_size, None], name='prev_coverage')
@@ -62,13 +63,14 @@ class SummarizationModel(object):
     feed_dict = {}
     feed_dict[self._enc_batch] = batch.enc_batch
     feed_dict[self._enc_lens] = batch.enc_lens
+    feed_dict[self._enc_padding_mask] = batch.enc_padding_mask
     if FLAGS.pointer_gen:
       feed_dict[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
       feed_dict[self._max_art_oovs] = batch.max_art_oovs
     if not just_enc:
       feed_dict[self._dec_batch] = batch.dec_batch
       feed_dict[self._target_batch] = batch.target_batch
-      feed_dict[self._padding_mask] = batch.padding_mask
+      feed_dict[self._dec_padding_mask] = batch.dec_padding_mask
     return feed_dict
 
   def _add_encoder(self, encoder_inputs, seq_len):
@@ -137,7 +139,7 @@ class SummarizationModel(object):
 
     prev_coverage = self.prev_coverage if hps.mode=="decode" and hps.coverage else None # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
 
-    outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(inputs, self._dec_in_state, self._enc_states, cell, initial_state_attention=(hps.mode=="decode"), pointer_gen=hps.pointer_gen, use_coverage=hps.coverage, prev_coverage=prev_coverage)
+    outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode=="decode"), pointer_gen=hps.pointer_gen, use_coverage=hps.coverage, prev_coverage=prev_coverage)
 
     return outputs, out_state, attn_dists, p_gens, coverage
 
@@ -149,7 +151,7 @@ class SummarizationModel(object):
       attn_dists: The attention distributions. List length max_dec_steps of (batch_size, attn_len) arrays
 
     Returns:
-      final_dists: The final distributions. List length max-dec_steps of (batch_size, extended_vsize) arrays.
+      final_dists: The final distributions. List length max_dec_steps of (batch_size, extended_vsize) arrays.
     """
     with tf.variable_scope('final_distribution'):
       # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
@@ -236,50 +238,51 @@ class SummarizationModel(object):
         vocab_dists = [tf.nn.softmax(s) for s in vocab_scores] # The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays. The words are in the order they appear in the vocabulary file.
 
 
-      # For pointer-generator model, calc final distribution from copy distribution and vocabulary distribution, then take log
+      # For pointer-generator model, calc final distribution from copy distribution and vocabulary distribution
       if FLAGS.pointer_gen:
         final_dists = self._calc_final_dist(vocab_dists, self.attn_dists)
-        # Take log of final distribution
-        log_dists = [tf.log(dist) for dist in final_dists]
-      else: # just take log of vocab_dists
-        log_dists = [tf.log(dist) for dist in vocab_dists]
+      else: # final distribution is just vocabulary distribution
+        final_dists = vocab_dists
+
 
 
       if hps.mode in ['train', 'eval']:
         # Calculate the loss
         with tf.variable_scope('loss'):
-          if FLAGS.pointer_gen: # calculate loss from log_dists
+          if FLAGS.pointer_gen:
             # Calculate the loss per step
-            # This is fiddly; we use tf.gather_nd to pick out the log probabilities of the target words
+            # This is fiddly; we use tf.gather_nd to pick out the probabilities of the gold target words
             loss_per_step = [] # will be list length max_dec_steps containing shape (batch_size)
             batch_nums = tf.range(0, limit=hps.batch_size) # shape (batch_size)
-            for dec_step, log_dist in enumerate(log_dists):
+            for dec_step, dist in enumerate(final_dists):
               targets = self._target_batch[:,dec_step] # The indices of the target words. shape (batch_size)
               indices = tf.stack( (batch_nums, targets), axis=1) # shape (batch_size, 2)
-              losses = tf.gather_nd(-log_dist, indices) # shape (batch_size). loss on this step for each batch
+              gold_probs = tf.gather_nd(dist, indices) # shape (batch_size). prob of correct words on this step
+              losses = -tf.log(gold_probs)
               loss_per_step.append(losses)
 
-            # Apply padding_mask mask and get loss
-            self._loss = _mask_and_avg(loss_per_step, self._padding_mask)
+            # Apply dec_padding_mask and get loss
+            self._loss = _mask_and_avg(loss_per_step, self._dec_padding_mask)
 
           else: # baseline model
-            self._loss = tf.contrib.seq2seq.sequence_loss(tf.stack(vocab_scores, axis=1), self._target_batch, self._padding_mask) # this applies softmax internally
+            self._loss = tf.contrib.seq2seq.sequence_loss(tf.stack(vocab_scores, axis=1), self._target_batch, self._dec_padding_mask) # this applies softmax internally
 
           tf.summary.scalar('loss', self._loss)
 
           # Calculate coverage loss from the attention distributions
           if hps.coverage:
             with tf.variable_scope('coverage_loss'):
-              self._coverage_loss = _coverage_loss(self.attn_dists, self._padding_mask)
+              self._coverage_loss = _coverage_loss(self.attn_dists, self._dec_padding_mask)
               tf.summary.scalar('coverage_loss', self._coverage_loss)
             self._total_loss = self._loss + hps.cov_loss_wt * self._coverage_loss
             tf.summary.scalar('total_loss', self._total_loss)
 
     if hps.mode == "decode":
       # We run decode beam search mode one decoder step at a time
-      assert len(log_dists)==1 # log_dists is a singleton list containing shape (batch_size, extended_vsize)
-      log_dists = log_dists[0]
-      self._topk_log_probs, self._topk_ids = tf.nn.top_k(log_dists, hps.batch_size*2) # note batch_size=beam_size in decode mode
+      assert len(final_dists)==1 # final_dists is a singleton list containing shape (batch_size, extended_vsize)
+      final_dists = final_dists[0]
+      topk_probs, self._topk_ids = tf.nn.top_k(final_dists, hps.batch_size*2) # take the k largest probs. note batch_size=beam_size in decode mode
+      self._topk_log_probs = tf.log(topk_probs)
 
 
   def _add_train_op(self):
@@ -393,6 +396,7 @@ class SummarizationModel(object):
 
     feed = {
         self._enc_states: enc_states,
+        self._enc_padding_mask: batch.enc_padding_mask,
         self._dec_in_state: new_dec_in_state,
         self._dec_batch: np.transpose(np.array([latest_tokens])),
     }

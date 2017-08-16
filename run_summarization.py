@@ -27,6 +27,7 @@ from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
 import util
+from tensorflow.python import debug as tf_debug
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -63,7 +64,14 @@ tf.app.flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator
 # Coverage hyperparameters
 tf.app.flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the experiments reported in the ACL paper train WITHOUT coverage until converged, and then train for a short phase WITH coverage afterwards. i.e. to reproduce the results in the ACL paper, turn this off for most of training then turn on for a short phase at the end.')
 tf.app.flags.DEFINE_float('cov_loss_wt', 1.0, 'Weight of coverage loss (lambda in the paper). If zero, then no incentive to minimize coverage loss.')
-tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
+
+# Utility flags, for restoring and changing checkpoints
+tf.app.flags.DEFINE_boolean('convert_to_coverage_model', False, 'Convert a non-coverage model to a coverage model. Turn this on and run in train mode. Your current training model will be copied to a new version (same name with _cov_init appended) that will be ready to run with coverage flag turned on, for the coverage training stage.')
+tf.app.flags.DEFINE_boolean('restore_best_model', False, 'Restore the best model in the eval/ dir and save it in the train/ dir, ready to be used for further training. Useful for early stopping, or if your training checkpoint has become corrupted with e.g. NaN values.')
+
+# Debugging. See https://www.tensorflow.org/programmers_guide/debugger
+tf.app.flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (watches for NaN/inf values)")
+
 
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
@@ -91,6 +99,31 @@ def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.
   summary_writer.add_summary(loss_sum, step)
   tf.logging.info('running_avg_loss: %f', running_avg_loss)
   return running_avg_loss
+
+
+def restore_best_model():
+  """Load bestmodel file from eval directory, add variables for adagrad, and save to train directory"""
+  tf.logging.info("Restoring bestmodel for training...")
+
+  # Initialize all vars in the model
+  sess = tf.Session(config=util.get_config())
+  print "Initializing all variables..."
+  sess.run(tf.initialize_all_variables())
+
+  # Restore the best model from eval dir
+  saver = tf.train.Saver([v for v in tf.all_variables() if "Adagrad" not in v.name])
+  print "Restoring all non-adagrad variables from best model in eval dir..."
+  curr_ckpt = util.load_ckpt(saver, sess, "eval")
+  print "Restored %s." % curr_ckpt
+
+  # Save this model to train dir and quit
+  new_model_name = curr_ckpt.split("/")[-1].replace("bestmodel", "model")
+  new_fname = os.path.join(FLAGS.log_root, "train", new_model_name)
+  print "Saving model to %s..." % (new_fname)
+  new_saver = tf.train.Saver() # this saver saves all variables that now exist, including Adagrad variables
+  new_saver.save(sess, new_fname)
+  print "Saved."
+  exit()
 
 
 def convert_to_coverage_model():
@@ -122,13 +155,13 @@ def setup_training(model, batcher):
   train_dir = os.path.join(FLAGS.log_root, "train")
   if not os.path.exists(train_dir): os.makedirs(train_dir)
 
-  default_device = tf.device('/cpu:0')
-  with default_device:
-    model.build_graph() # build the graph
-    if FLAGS.convert_to_coverage_model:
-      assert FLAGS.coverage, "To convert your non-coverage model to a coverage model, run with convert_to_coverage_model=True and coverage=True"
-      convert_to_coverage_model()
-    saver = tf.train.Saver(max_to_keep=1) # only keep 1 checkpoint at a time
+  model.build_graph() # build the graph
+  if FLAGS.convert_to_coverage_model:
+    assert FLAGS.coverage, "To convert your non-coverage model to a coverage model, run with convert_to_coverage_model=True and coverage=True"
+    convert_to_coverage_model()
+  if FLAGS.restore_best_model:
+    restore_best_model()
+  saver = tf.train.Saver(max_to_keep=1) # only keep 1 checkpoint at a time
 
   sv = tf.train.Supervisor(logdir=train_dir,
                      is_chief=True,
@@ -152,6 +185,9 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
   """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
   tf.logging.info("starting run_training")
   with sess_context_manager as sess:
+    if FLAGS.debug: # start the tensorflow debugger
+      sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+      sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
     while True: # repeats until interrupted
       batch = batcher.next_batch()
 
@@ -163,6 +199,10 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
 
       loss = results['loss']
       tf.logging.info('loss: %f', loss) # print the loss to screen
+
+      if not np.isfinite(loss):
+        raise Exception("Loss is not finite. Stopping.")
+
       if FLAGS.coverage:
         coverage_loss = results['coverage_loss']
         tf.logging.info("coverage_loss: %f", coverage_loss) # print the coverage loss to screen

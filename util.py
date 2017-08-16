@@ -27,15 +27,16 @@ def get_config():
   config.gpu_options.allow_growth=True
   return config
 
-def load_ckpt(saver, sess):
-  """Load checkpoint from the train directory and restore it to saver and sess, waiting 10 secs in the case of failure. Also returns checkpoint name."""
+def load_ckpt(saver, sess, ckpt_dir="train"):
+  """Load checkpoint from the ckpt_dir (if unspecified, this is train dir) and restore it to saver and sess, waiting 10 secs in the case of failure. Also returns checkpoint name."""
   while True:
     try:
-      train_dir = os.path.join(FLAGS.log_root, "train")
-      ckpt_state = tf.train.get_checkpoint_state(train_dir)
+      latest_filename = "checkpoint_best" if ckpt_dir=="eval" else None
+      ckpt_dir = os.path.join(FLAGS.log_root, ckpt_dir)
+      ckpt_state = tf.train.get_checkpoint_state(ckpt_dir, latest_filename=latest_filename)
       tf.logging.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
       saver.restore(sess, ckpt_state.model_checkpoint_path)
       return ckpt_state.model_checkpoint_path
     except:
-      tf.logging.info("Failed to load checkpoint from %s. Sleeping for %i secs...", train_dir, 10)
+      tf.logging.info("Failed to load checkpoint from %s. Sleeping for %i secs...", ckpt_dir, 10)
       time.sleep(10)

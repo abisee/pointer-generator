@@ -139,6 +139,8 @@ class Batch(object):
           numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
         self.enc_lens:
           numpy array of shape (batch_size) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
+        self.enc_padding_mask:
+          numpy array of shape (batch_size, <=max_enc_steps), containing 1s and 0s. 1s correspond to real tokens in enc_batch and target_batch; 0s correspond to padding.
 
       If hps.pointer_gen, additionally initializes the following:
         self.max_art_oovs:
@@ -159,11 +161,14 @@ class Batch(object):
     # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
     self.enc_batch = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.int32)
     self.enc_lens = np.zeros((hps.batch_size), dtype=np.int32)
+    self.enc_padding_mask = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
       self.enc_batch[i, :] = ex.enc_input[:]
       self.enc_lens[i] = ex.enc_len
+      for j in xrange(ex.enc_len):
+        self.enc_padding_mask[i][j] = 1
 
     # For pointer-generator mode, need to store some extra info
     if hps.pointer_gen:
@@ -182,7 +187,7 @@ class Batch(object):
           numpy array of shape (batch_size, max_dec_steps), containing integer ids as input for the decoder, padded to max_dec_steps length.
         self.target_batch:
           numpy array of shape (batch_size, max_dec_steps), containing integer ids for the target sequence, padded to max_dec_steps length.
-        self.padding_mask:
+        self.dec_padding_mask:
           numpy array of shape (batch_size, max_dec_steps), containing 1s and 0s. 1s correspond to real tokens in dec_batch and target_batch; 0s correspond to padding.
         """
     # Pad the inputs and targets
@@ -193,14 +198,14 @@ class Batch(object):
     # Note: our decoder inputs and targets must be the same length for each batch (second dimension = max_dec_steps) because we do not use a dynamic_rnn for decoding. However I believe this is possible, or will soon be possible, with Tensorflow 1.0, in which case it may be best to upgrade to that.
     self.dec_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
     self.target_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
-    self.padding_mask = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.float32)
+    self.dec_padding_mask = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
       self.dec_batch[i, :] = ex.dec_input[:]
       self.target_batch[i, :] = ex.target[:]
       for j in xrange(ex.dec_len):
-        self.padding_mask[i][j] = 1
+        self.dec_padding_mask[i][j] = 1
 
   def store_orig_strings(self, example_list):
     """Store the original article and abstract strings in the Batch object"""

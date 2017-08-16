@@ -24,12 +24,13 @@ from tensorflow.python.ops import math_ops
 
 # Note: this function is based on tf.contrib.legacy_seq2seq_attention_decoder, which is now outdated.
 # In the future, it would make more sense to write variants on the attention mechanism using the new seq2seq library for tensorflow 1.0: https://www.tensorflow.org/api_guides/python/contrib.seq2seq#Attention
-def attention_decoder(decoder_inputs, initial_state, encoder_states, cell, initial_state_attention=False, pointer_gen=True, use_coverage=False, prev_coverage=None):
+def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding_mask, cell, initial_state_attention=False, pointer_gen=True, use_coverage=False, prev_coverage=None):
   """
   Args:
     decoder_inputs: A list of 2D Tensors [batch_size x input_size].
     initial_state: 2D Tensor [batch_size x cell.state_size].
     encoder_states: 3D Tensor [batch_size x attn_length x attn_size].
+    enc_padding_mask: 2D Tensor [batch_size x attn_length] containing 1s and 0s; indicates which of the encoder locations are padding (0) or a real token (1).
     cell: rnn_cell.RNNCell defining the cell function and size.
     initial_state_attention:
       Note that this attention decoder passes each decoder input through a linear layer with the previous step's context vector to get a modified version of the input. If initial_state_attention is False, on the first decoder step the "previous context vector" is just a zero vector. If initial_state_attention is True, we use initial_state to (re)calculate the previous step's context vector. We set this to False for train/eval mode (because we call attention_decoder once for all decoder steps) and True for decode mode (because we call attention_decoder once for each decoder step).
@@ -92,6 +93,13 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, cell, initi
         decoder_features = linear(decoder_state, attention_vec_size, True) # shape (batch_size, attention_vec_size)
         decoder_features = tf.expand_dims(tf.expand_dims(decoder_features, 1), 1) # reshape to (batch_size, 1, 1, attention_vec_size)
 
+        def masked_attention(e):
+          """Take softmax of e then apply enc_padding_mask and re-normalize"""
+          attn_dist = nn_ops.softmax(e) # take softmax. shape (batch_size, attn_length)
+          attn_dist *= enc_padding_mask # apply mask
+          masked_sums = tf.reduce_sum(attn_dist, axis=1) # shape (batch_size)
+          return attn_dist / tf.reshape(masked_sums, [-1, 1]) # re-normalize
+
         if use_coverage and coverage is not None: # non-first step of coverage
           # Multiply coverage vector by w_c to get coverage_features.
           coverage_features = nn_ops.conv2d(coverage, w_c, [1, 1, 1, 1], "SAME") # c has shape (batch_size, attn_length, 1, attention_vec_size)
@@ -99,8 +107,8 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, cell, initi
           # Calculate v^T tanh(W_h h_i + W_s s_t + w_c c_i^t + b_attn)
           e = math_ops.reduce_sum(v * math_ops.tanh(encoder_features + decoder_features + coverage_features), [2, 3])  # shape (batch_size,attn_length)
 
-          # Take softmax of e to get the attention distribution
-          attn_dist = nn_ops.softmax(e) # shape (batch_size, attn_length)
+          # Calculate attention distribution
+          attn_dist = masked_attention(e)
 
           # Update coverage vector
           coverage += array_ops.reshape(attn_dist, [batch_size, -1, 1, 1])
@@ -108,8 +116,8 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, cell, initi
           # Calculate v^T tanh(W_h h_i + W_s s_t + b_attn)
           e = math_ops.reduce_sum(v * math_ops.tanh(encoder_features + decoder_features), [2, 3]) # calculate e
 
-          # Take softmax of e to get the attention distribution
-          attn_dist = nn_ops.softmax(e) # shape (batch_size, attn_length)
+          # Calculate attention distribution
+          attn_dist = masked_attention(e)
 
           if use_coverage: # first step of training
             coverage = tf.expand_dims(tf.expand_dims(attn_dist,2),2) # initialize coverage
