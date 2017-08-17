@@ -4,7 +4,11 @@ This repository contains code for the ACL 2017 paper *[Get To The Point: Summari
 The test set output of the models described in the paper can be found [here](https://drive.google.com/file/d/0B7pQmm-OfDv7MEtMVU5sOHc5LTg/view?usp=sharing).
 
 ## Looking for pretrained model?
-A pretrained model is available [here](https://drive.google.com/file/d/0B7pQmm-OfDv7LXVXTl9KeS1Vd0U/view?usp=sharing) (readme included).
+A pretrained model is available here:
+* [Version for Tensorflow 1.0](https://drive.google.com/file/d/0B7pQmm-OfDv7SHFadHR4RllfR1E/view?usp=sharing)
+* [Version for Tensorflow 1.2.1](https://drive.google.com/file/d/0B7pQmm-OfDv7ZUhHZm9ZWEZidDg/view?usp=sharing)
+
+(The only difference between these two is the naming of some of the variables in the checkpoint. Tensorflow 1.0 uses `lstm_cell/biases` and `lstm_cell/weights` whereas Tensorflow 1.2.1 uses `lstm_cell/bias` and `lstm_cell/kernel`).
 
 ## Looking for CNN / Daily Mail data?
 Instructions are [here](https://github.com/abisee/cnn-dailymail).
