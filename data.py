@@ -242,7 +242,7 @@ def abstract2sents(abstract):
 def show_art_oovs(article, vocab):
   """Returns the article string, highlighting the OOVs by placing __underscores__ around them"""
   unk_token = vocab.word2id(UNKNOWN_TOKEN)
-  words = article.split(' ')
+  words = article.decode().split(' ')
   words = [("__%s__" % w) if vocab.word2id(w)==unk_token else w for w in words]
   out_str = ' '.join(words)
   return out_str
