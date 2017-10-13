@@ -131,7 +131,7 @@ class SummarizationModel(object):
       outputs: List of tensors; the outputs of the decoder
       out_state: The final state of the decoder
       attn_dists: A list of tensors; the attention distributions
-      p_gens: A list of scalar tensors; the generation probabilities
+      p_gens: A list of tensors shape (batch_size, 1); the generation probabilities
       coverage: A tensor, the current coverage vector
     """
     hps = self._hps
