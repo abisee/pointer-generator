@@ -14,6 +14,10 @@ A pretrained model is available here:
 
 (The only difference between these two is the naming of some of the variables in the checkpoint. Tensorflow 1.0 uses `lstm_cell/biases` and `lstm_cell/weights` whereas Tensorflow 1.2.1 uses `lstm_cell/bias` and `lstm_cell/kernel`).
 
+**Note**: This pretrained model is *not* the exact same model that is reported in the paper. That is, it is the same architecture, trained with the same settings, but resulting from a different training run. Consequently this pretrained model has slightly lower ROUGE scores than those reported in the paper. This is probably due to us slightly overfitting to the randomness in our original experiments (in the original experiments we tried various hyperparameter settings and selected the model that performed best). Repeating the experiment once with the same settings did not perform quite as well. Better results might be obtained from further hyperparameter tuning.
+
+**Why can't you release the trained model reported in the paper?** Due to changes to the code between the original experiments and the time of releasing the code (e.g. TensorFlow version changes, lots of code cleanup), it is not possible to release the original trained model files. 
+
 ## Looking for CNN / Daily Mail data?
 Instructions are [here](https://github.com/abisee/cnn-dailymail).
 
