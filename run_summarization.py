@@ -296,8 +296,9 @@ def main(unused_argv):
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
-      hps_dict[key] = val # add it to the dict
+      hps_dict[key] = val.value # add it to the dict
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
+  tf.logging.info(f'hps={repr(hps)}')
 
   # Create a batcher object that will create minibatches of data
   batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
