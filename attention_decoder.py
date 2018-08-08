@@ -45,7 +45,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
     state: The final state of the decoder. A tensor shape [batch_size x cell.state_size].
     attn_dists: A list containing tensors of shape (batch_size,attn_length).
       The attention distributions for each decoder step.
-    p_gens: List of length input_size, containing tensors of shape [batch_size, 1]. The values of p_gen for each decoder step. Empty list if pointer_gen=False.
+    p_gens: List of scalars. The values of p_gen for each decoder step. Empty list if pointer_gen=False.
     coverage: Coverage vector on the last step computed. None if use_coverage=False.
   """
   with variable_scope.variable_scope("attention_decoder") as scope:
@@ -163,7 +163,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
       # Calculate p_gen
       if pointer_gen:
         with tf.variable_scope('calculate_pgen'):
-          p_gen = linear([context_vector, state.c, state.h, x], 1, True) # Tensor shape (batch_size, 1)
+          p_gen = linear([context_vector, state.c, state.h, x], 1, True) # a scalar
           p_gen = tf.sigmoid(p_gen)
           p_gens.append(p_gen)
 

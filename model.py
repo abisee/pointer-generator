@@ -131,7 +131,7 @@ class SummarizationModel(object):
       outputs: List of tensors; the outputs of the decoder
       out_state: The final state of the decoder
       attn_dists: A list of tensors; the attention distributions
-      p_gens: A list of tensors shape (batch_size, 1); the generation probabilities
+      p_gens: A list of scalar tensors; the generation probabilities
       coverage: A tensor, the current coverage vector
     """
     hps = self._hps
@@ -420,7 +420,7 @@ class SummarizationModel(object):
     results = sess.run(to_return, feed_dict=feed) # run the decoder step
 
     # Convert results['states'] (a single LSTMStateTuple) into a list of LSTMStateTuple -- one for each hypothesis
-    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in xrange(beam_size)]
+    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in range(beam_size)]
 
     # Convert singleton list containing a tensor to a list of k arrays
     assert len(results['attn_dists'])==1
@@ -431,14 +431,14 @@ class SummarizationModel(object):
       assert len(results['p_gens'])==1
       p_gens = results['p_gens'][0].tolist()
     else:
-      p_gens = [None for _ in xrange(beam_size)]
+      p_gens = [None for _ in range(beam_size)]
 
     # Convert the coverage tensor to a list length k containing the coverage vector for each hypothesis
     if FLAGS.coverage:
       new_coverage = results['coverage'].tolist()
       assert len(new_coverage) == beam_size
     else:
-      new_coverage = [None for _ in xrange(beam_size)]
+      new_coverage = [None for _ in range(beam_size)]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 
