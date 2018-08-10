@@ -21,13 +21,13 @@ import os
 import tensorflow as tf
 from tensorflow import logging as log
 import numpy as np
-from collections import namedtuple
 from data import Vocab
 from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
 import util
 from tensorflow.python import debug as tf_debug
+from tensorflow.contrib.training import HParams
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -274,6 +274,29 @@ def run_eval(model, batcher, vocab):
             summary_writer.flush()
 
 
+def __hparams():
+    """Make a HParams object, containing the values of the hyperparameters that the model needs
+
+    :return:
+        HParams object
+    """
+    hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm',
+                   'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt',
+                   'pointer_gen']
+    hps_dict = {}
+    for key, val in FLAGS.__flags.items():  # for each flag
+        if key in hparam_list:  # if it's in the list
+            hps_dict[key] = val.value  # add it to the dict
+    hps = HParams(**hps_dict)
+    if FLAGS.mode == 'decode':
+        # The model is configured with max_dec_steps=1
+        # because we only ever run one step of the decoder at a time (to do beam search).
+        # Note that the batcher is initialized with max_dec_steps equal to e.g. 100
+        # because the batches need to contain the full summaries
+        hps.set_hparam('max_dec_steps', 1)
+    return hps
+
+
 def main(unused_argv):
     if len(unused_argv) != 1:  # prints a message if you've entered flags incorrectly
         raise Exception("Problem with flags: %s" % unused_argv)
@@ -301,15 +324,7 @@ def main(unused_argv):
     if FLAGS.single_pass and FLAGS.mode != 'decode':
         raise Exception("The single_pass flag should only be True in decode mode")
 
-    # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-    hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm',
-                   'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt',
-                   'pointer_gen']
-    hps_dict = {}
-    for key, val in FLAGS.__flags.items():  # for each flag
-        if key in hparam_list:  # if it's in the list
-            hps_dict[key] = val.value  # add it to the dict
-    hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
+    hps = __hparams()
     log.info(f'hps={repr(hps)}')
 
     # Create a batcher object that will create minibatches of data
@@ -325,10 +340,7 @@ def main(unused_argv):
         model = SummarizationModel(hps, vocab)
         run_eval(model, batcher, vocab)
     elif hps.mode == 'decode':
-        decode_model_hps = hps  # This will be the hyperparameters for the decoder model
-        decode_model_hps = hps._replace(
-            max_dec_steps=1)  # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
-        model = SummarizationModel(decode_model_hps, vocab)
+        model = SummarizationModel(hps, vocab)
         decoder = BeamSearchDecoder(model, batcher, vocab)
         decoder.decode()  # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
     else:
