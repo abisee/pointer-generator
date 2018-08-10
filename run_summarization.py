@@ -169,28 +169,31 @@ def setup_training(model, batcher):
         convert_to_coverage_model()
     if FLAGS.restore_best_model:
         restore_best_model()
-    saver = tf.train.Saver(max_to_keep=3)  # keep 3 checkpoints at a time
 
-    sv = tf.train.Supervisor(logdir=train_dir,
-                             is_chief=True,
-                             saver=saver,
-                             summary_op=None,
-                             save_summaries_secs=60,  # save summaries for tensorboard every 60 secs
-                             save_model_secs=60,  # checkpoint every 60 secs
-                             global_step=model.global_step)
-    summary_writer = sv.summary_writer
+    sess = tf.train.MonitoredTrainingSession(
+        summary_dir=train_dir,
+        checkpoint_dir=train_dir,
+        is_chief=True,
+        save_summaries_secs=60,  # save summaries for tensorboard every 60 secs
+        save_checkpoint_secs=60,  # checkpoint every 60 secs
+        max_wait_secs=60,
+        stop_grace_period_secs=60,
+        config=util.get_config()
+        #global_step=model.global_step
+    )
+
+    summary_writer = tf.summary.FileWriterCache.get(train_dir)
     log.info("Preparing or waiting for session...")
-    sess_context_manager = sv.prepare_or_wait_for_session(config=util.get_config())
     log.info("Created session.")
     try:
-        run_training(model, batcher, sess_context_manager, sv,
-                     summary_writer)  # this is an infinite loop until interrupted
+        # this is an infinite loop until interrupted
+        run_training(model, batcher, sess, summary_writer)
     except KeyboardInterrupt:
-        log.info("Caught keyboard interrupt on worker. Stopping supervisor...")
-        sv.stop()
+        log.info("Caught keyboard interrupt on worker. Stopping MonitoredSession...")
+        sess.close()
 
 
-def run_training(model, batcher, sess_context_manager, sv, summary_writer):
+def run_training(model, batcher, sess_context_manager, summary_writer):
     """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
     log.info("starting run_training")
     with sess_context_manager as sess:
