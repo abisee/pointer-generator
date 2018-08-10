@@ -22,6 +22,7 @@ from threading import Thread
 import time
 import numpy as np
 import tensorflow as tf
+from tensorflow import logging as log
 import data
 
 
@@ -277,11 +278,11 @@ class Batcher(object):
         """
         # If the batch queue is empty, print a warning
         if self._batch_queue.qsize() == 0:
-            tf.logging.warning(
+            log.warning(
                 'Bucket input queue is empty when calling next_batch. Bucket queue size: %i, Input queue size: %i',
                 self._batch_queue.qsize(), self._example_queue.qsize())
             if self._single_pass and self._finished_reading:
-                tf.logging.info("Finished reading dataset in single_pass mode.")
+                log.info("Finished reading dataset in single_pass mode.")
                 return None
 
         batch = self._batch_queue.get()  # get the next Batch
@@ -297,9 +298,9 @@ class Batcher(object):
                 (article, abstract) = next(
                     input_gen)  # read the next example from file. article and abstract are both strings.
             except StopIteration:  # if there are no more examples:
-                tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
+                log.info("The example generator for this example queue filling thread has exhausted data.")
                 if self._single_pass:
-                    tf.logging.info(
+                    log.info(
                         "single_pass mode is on, so we've finished reading dataset. This thread is stopping.")
                     self._finished_reading = True
                     break
@@ -344,14 +345,14 @@ class Batcher(object):
             time.sleep(60)
             for idx, t in enumerate(self._example_q_threads):
                 if not t.is_alive():  # if the thread is dead
-                    tf.logging.error('Found example queue thread dead. Restarting.')
+                    log.error('Found example queue thread dead. Restarting.')
                     new_t = Thread(target=self.fill_example_queue)
                     self._example_q_threads[idx] = new_t
                     new_t.daemon = True
                     new_t.start()
             for idx, t in enumerate(self._batch_q_threads):
                 if not t.is_alive():  # if the thread is dead
-                    tf.logging.error('Found batch queue thread dead. Restarting.')
+                    log.error('Found batch queue thread dead. Restarting.')
                     new_t = Thread(target=self.fill_batch_queue)
                     self._batch_q_threads[idx] = new_t
                     new_t.daemon = True
@@ -370,9 +371,9 @@ class Batcher(object):
                 abstract_text = e.features.feature['abstract'].bytes_list.value[
                     0].decode()  # the abstract text was saved under the key 'abstract' in the data files
             except ValueError:
-                tf.logging.error('Failed to get article or abstract from example')
+                log.error('Failed to get article or abstract from example')
                 continue
             if len(article_text) == 0:  # See https://github.com/abisee/pointer-generator/issues/1
-                tf.logging.warning('Found an example with empty article text. Skipping it.')
+                log.warning('Found an example with empty article text. Skipping it.')
             else:
                 yield (article_text, abstract_text)

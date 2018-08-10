@@ -20,6 +20,7 @@ import os
 import time
 import numpy as np
 import tensorflow as tf
+from tensorflow import logging as log
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
 
@@ -330,7 +331,7 @@ class SummarizationModel(object):
 
     def build_graph(self):
         """Add the placeholders, model, global step, train_op and summaries to the graph"""
-        tf.logging.info('Building graph...')
+        log.info('Building graph...')
         t0 = time.time()
         self._add_placeholders()
         with tf.device("/gpu:0"):
@@ -340,7 +341,7 @@ class SummarizationModel(object):
             self._add_train_op()
         self._summaries = tf.summary.merge_all()
         t1 = time.time()
-        tf.logging.info('Time to build graph: %i seconds', t1 - t0)
+        log.info('Time to build graph: %i seconds', t1 - t0)
 
     def run_train_step(self, sess, batch):
         """Runs one training iteration. Returns a dictionary containing train op, summaries, loss, global_step and (optionally) coverage loss."""

@@ -17,6 +17,7 @@
 """This file defines the decoder"""
 
 import tensorflow as tf
+from tensorflow import logging as log
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
@@ -152,7 +153,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
             context_vector, _, coverage = attention(initial_state,
                                                     coverage)  # in decode mode, this is what updates the coverage vector
         for i, inp in enumerate(decoder_inputs):
-            tf.logging.info("Adding attention_decoder timestep %i of %i", i, len(decoder_inputs))
+            log.info("Adding attention_decoder timestep %i of %i", i+1, len(decoder_inputs))
             if i > 0:
                 variable_scope.get_variable_scope().reuse_variables()
 

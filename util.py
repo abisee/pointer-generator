@@ -17,6 +17,7 @@
 """This file contains some utility functions"""
 
 import tensorflow as tf
+from tensorflow import logging as log
 import time
 import os
 
@@ -38,9 +39,9 @@ def load_ckpt(saver, sess, ckpt_dir="train"):
             latest_filename = "checkpoint_best" if ckpt_dir == "eval" else None
             ckpt_dir = os.path.join(FLAGS.log_root, ckpt_dir)
             ckpt_state = tf.train.get_checkpoint_state(ckpt_dir, latest_filename=latest_filename)
-            tf.logging.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
+            log.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
             saver.restore(sess, ckpt_state.model_checkpoint_path)
             return ckpt_state.model_checkpoint_path
         except:
-            tf.logging.info("Failed to load checkpoint from %s. Sleeping for %i secs...", ckpt_dir, 10)
+            log.info("Failed to load checkpoint from %s. Sleeping for %i secs...", ckpt_dir, 10)
             time.sleep(10)
