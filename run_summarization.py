@@ -177,16 +177,19 @@ def setup_training(model, batcher):
 
 
 def __train_session(train_dir):
-    cp_saver = tf.train.CheckpointSaverHook(
+    cp_hook = tf.train.CheckpointSaverHook(
         checkpoint_dir=train_dir,
-        save_secs=60, # checkpoint every 60 secs
+        save_secs=60,  # checkpoint every 60 secs
         saver=tf.train.Saver(max_to_keep=3)
     )
+    sum_hook = tf.train.SummarySaverHook(
+        summary_writer=tf.summary.FileWriterCache.get(train_dir),
+        summary_op=tf.summary.merge_all(),
+        save_secs=60  # save summaries for tensorboard every 60 secs
+    )
     sess = tf.train.MonitoredTrainingSession(
-        summary_dir=train_dir,
-        hooks=[cp_saver],
+        hooks=[cp_hook, sum_hook],
         is_chief=True,
-        save_summaries_secs=60,  # save summaries for tensorboard every 60 secs
         max_wait_secs=60,
         stop_grace_period_secs=60,
         config=util.get_config()
@@ -199,29 +202,26 @@ def __train_session(train_dir):
 
 def run_training(model, batcher, train_dir):
     """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
-    log.info("starting run_training")
+    log.debug("starting run_training")
     summary_writer = tf.summary.FileWriterCache.get(train_dir)
     with __train_session(train_dir) as sess:
         while not sess.should_stop():  # repeats until interrupted
+            log.debug('running training step...')
             batch = batcher.next_batch()
-            log.info('running training step...')
             t0 = time.time()
             results = model.run_train_step(sess, batch)
             t1 = time.time()
-            log.info('seconds for training step: %.3f', t1 - t0)
             loss = results['loss']
-            log.info('loss: %f', loss)  # print the loss to screen
             if not np.isfinite(loss):
                 raise Exception("Loss is not finite. Stopping.")
+            train_step = results['global_step']  # we need this to update our running average loss
+            log.info('step=%i, loss=%f, elapsed_secs=%.0f', train_step, loss, t1 - t0)
             if FLAGS.coverage:
                 coverage_loss = results['coverage_loss']
                 log.info("coverage_loss: %f", coverage_loss)  # print the coverage loss to screen
             # get the summaries and iteration number so we can write summaries to tensorboard
             summaries = results['summaries']  # we will write these summaries to tensorboard using summary_writer
-            train_step = results['global_step']  # we need this to update our running average loss
             summary_writer.add_summary(summaries, train_step)  # write the summaries
-            if train_step % 100 == 0:  # flush the summary writer every so often
-                summary_writer.flush()
 
 
 def run_eval(model, batcher, vocab):
