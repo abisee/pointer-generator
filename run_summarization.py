@@ -161,15 +161,24 @@ def convert_to_coverage_model():
 def setup_training(model, batcher):
     """Does setup before starting training (run_training)"""
     train_dir = os.path.join(FLAGS.log_root, "train")
-    if not os.path.exists(train_dir): os.makedirs(train_dir)
-
+    if not os.path.exists(train_dir):
+        os.makedirs(train_dir)
     model.build_graph()  # build the graph
     if FLAGS.convert_to_coverage_model:
         assert FLAGS.coverage, "To convert your non-coverage model to a coverage model, run with convert_to_coverage_model=True and coverage=True"
         convert_to_coverage_model()
     if FLAGS.restore_best_model:
         restore_best_model()
+    try:
+        # this is an infinite loop until interrupted
+        run_training(model, batcher, train_dir)
+    except KeyboardInterrupt:
+        log.info("Caught keyboard interrupt on worker. Stopping...")
 
+
+def run_training(model, batcher, train_dir):
+    """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
+    log.info("starting run_training")
     sess = tf.train.MonitoredTrainingSession(
         summary_dir=train_dir,
         checkpoint_dir=train_dir,
@@ -179,50 +188,30 @@ def setup_training(model, batcher):
         max_wait_secs=60,
         stop_grace_period_secs=60,
         config=util.get_config()
-        #global_step=model.global_step
+        # global_step=model.global_step
     )
-
+    if FLAGS.debug:  # start the tensorflow debugger
+        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+        sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
     summary_writer = tf.summary.FileWriterCache.get(train_dir)
-    log.info("Preparing or waiting for session...")
-    log.info("Created session.")
-    try:
-        # this is an infinite loop until interrupted
-        run_training(model, batcher, sess, summary_writer)
-    except KeyboardInterrupt:
-        log.info("Caught keyboard interrupt on worker. Stopping MonitoredSession...")
-        sess.close()
-
-
-def run_training(model, batcher, sess_context_manager, summary_writer):
-    """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
-    log.info("starting run_training")
-    with sess_context_manager as sess:
-        if FLAGS.debug:  # start the tensorflow debugger
-            sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-            sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-        while True:  # repeats until interrupted
+    with sess:
+        while not sess.should_stop():  # repeats until interrupted
             batch = batcher.next_batch()
-
             log.info('running training step...')
             t0 = time.time()
             results = model.run_train_step(sess, batch)
             t1 = time.time()
             log.info('seconds for training step: %.3f', t1 - t0)
-
             loss = results['loss']
             log.info('loss: %f', loss)  # print the loss to screen
-
             if not np.isfinite(loss):
                 raise Exception("Loss is not finite. Stopping.")
-
             if FLAGS.coverage:
                 coverage_loss = results['coverage_loss']
                 log.info("coverage_loss: %f", coverage_loss)  # print the coverage loss to screen
-
             # get the summaries and iteration number so we can write summaries to tensorboard
             summaries = results['summaries']  # we will write these summaries to tensorboard using summary_writer
             train_step = results['global_step']  # we need this to update our running average loss
-
             summary_writer.add_summary(summaries, train_step)  # write the summaries
             if train_step % 100 == 0:  # flush the summary writer every so often
                 summary_writer.flush()
