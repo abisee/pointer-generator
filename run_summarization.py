@@ -182,14 +182,12 @@ def __train_session(train_dir):
         save_secs=60,  # checkpoint every 60 secs
         saver=tf.train.Saver(max_to_keep=3)
     )
-    sum_hook = tf.train.SummarySaverHook(
-        summary_writer=tf.summary.FileWriterCache.get(train_dir),
-        summary_op=tf.summary.merge_all(),
-        save_secs=60  # save summaries for tensorboard every 60 secs
-    )
     sess = tf.train.MonitoredTrainingSession(
-        hooks=[cp_hook, sum_hook],
+        checkpoint_dir=train_dir,  # required to restore variables!
+        summary_dir=train_dir,
+        hooks=[cp_hook],
         is_chief=True,
+        save_summaries_secs=60,
         max_wait_secs=60,
         stop_grace_period_secs=60,
         config=util.get_config()
