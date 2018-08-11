@@ -176,25 +176,32 @@ def setup_training(model, batcher):
         log.info("Caught keyboard interrupt on worker. Stopping...")
 
 
-def run_training(model, batcher, train_dir):
-    """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
-    log.info("starting run_training")
+def __train_session(train_dir):
+    cp_saver = tf.train.CheckpointSaverHook(
+        checkpoint_dir=train_dir,
+        save_secs=60, # checkpoint every 60 secs
+        saver=tf.train.Saver(max_to_keep=3)
+    )
     sess = tf.train.MonitoredTrainingSession(
         summary_dir=train_dir,
-        checkpoint_dir=train_dir,
+        hooks=[cp_saver],
         is_chief=True,
         save_summaries_secs=60,  # save summaries for tensorboard every 60 secs
-        save_checkpoint_secs=60,  # checkpoint every 60 secs
         max_wait_secs=60,
         stop_grace_period_secs=60,
         config=util.get_config()
-        # global_step=model.global_step
     )
     if FLAGS.debug:  # start the tensorflow debugger
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+    return sess
+
+
+def run_training(model, batcher, train_dir):
+    """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
+    log.info("starting run_training")
     summary_writer = tf.summary.FileWriterCache.get(train_dir)
-    with sess:
+    with __train_session(train_dir) as sess:
         while not sess.should_stop():  # repeats until interrupted
             batch = batcher.next_batch()
             log.info('running training step...')
