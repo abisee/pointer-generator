@@ -153,7 +153,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
             context_vector, _, coverage = attention(initial_state,
                                                     coverage)  # in decode mode, this is what updates the coverage vector
         for i, inp in enumerate(decoder_inputs):
-            log.info("Adding attention_decoder timestep %i of %i", i+1, len(decoder_inputs))
+            log.debug("Adding attention_decoder timestep %i of %i", i+1, len(decoder_inputs))
             if i > 0:
                 variable_scope.get_variable_scope().reuse_variables()
 

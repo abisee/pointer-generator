@@ -116,10 +116,10 @@ def restore_best_model():
     # Initialize all vars in the model
     sess = tf.Session(config=util.get_config())
     log.info("Initializing all variables...")
-    sess.run(tf.initialize_all_variables())
+    sess.run(tf.global_variables_initializer())
 
     # Restore the best model from eval dir
-    saver = tf.train.Saver([v for v in tf.all_variables() if "Adagrad" not in v.name])
+    saver = tf.train.Saver([v for v in tf.global_variables() if "Adagrad" not in v.name])
     log.info("Restoring all non-adagrad variables from best model in eval dir...")
     curr_ckpt = util.load_ckpt(saver, sess, "eval")
     log.info("Restored %s." % curr_ckpt)
