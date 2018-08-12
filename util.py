@@ -26,14 +26,20 @@ FLAGS = tf.app.flags.FLAGS
 
 def get_config():
     """Returns config for tf.session"""
-    config = tf.ConfigProto(allow_soft_placement=True)
+    config = tf.ConfigProto(
+        allow_soft_placement=True,
+        log_device_placement=False
+    )
     config.gpu_options.allow_growth = True
     # config.gpu_options.per_process_gpu_memory_fraction=0.5
     return config
 
 
 def load_ckpt(saver, sess, ckpt_dir="train"):
-    """Load checkpoint from the ckpt_dir (if unspecified, this is train dir) and restore it to saver and sess, waiting 10 secs in the case of failure. Also returns checkpoint name."""
+    """Load checkpoint from the ckpt_dir (if unspecified, this is train dir)
+    and restore it to saver and sess, waiting 10 secs in the case of failure.
+    Also returns checkpoint name.
+    """
     while True:
         try:
             latest_filename = "checkpoint_best" if ckpt_dir == "eval" else None
