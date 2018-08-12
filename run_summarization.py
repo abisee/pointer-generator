@@ -177,20 +177,18 @@ def setup_training(model, batcher):
 
 
 def __train_session(train_dir):
-    cp_hook = tf.train.CheckpointSaverHook(
-        checkpoint_dir=train_dir,
-        save_secs=60,  # checkpoint every 60 secs
-        saver=tf.train.Saver(max_to_keep=3)
-    )
     sess = tf.train.MonitoredTrainingSession(
         checkpoint_dir=train_dir,  # required to restore variables!
         summary_dir=train_dir,
-        hooks=[cp_hook],
         is_chief=True,
         save_summaries_secs=60,
+        save_checkpoint_secs=60,
         max_wait_secs=60,
         stop_grace_period_secs=60,
-        config=util.get_config()
+        config=util.get_config(),
+        scaffold=tf.train.Scaffold(
+            saver=tf.train.Saver(max_to_keep=3)
+        )
     )
     if FLAGS.debug:  # start the tensorflow debugger
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
