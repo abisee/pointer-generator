@@ -197,11 +197,12 @@ class BeamSearchDecoder(object):
 
 def print_results(article, abstract, decoded_output):
     """Prints the article, the reference summmary and the decoded summary to screen"""
-    print("---------------------------------------------------------------------------")
+    divider_line = '-----------------------------------------------------------------------'
+    log.info(divider_line)
     log.info('ARTICLE:  %s', article)
     log.info('REFERENCE SUMMARY: %s', abstract)
     log.info('GENERATED SUMMARY: %s', decoded_output)
-    print("---------------------------------------------------------------------------")
+    log.info(divider_line)
 
 
 def make_html_safe(s):

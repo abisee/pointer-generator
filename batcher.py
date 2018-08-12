@@ -21,7 +21,6 @@ from random import shuffle
 from threading import Thread
 import time
 import numpy as np
-import tensorflow as tf
 from tensorflow import logging as log
 import data
 
