@@ -21,21 +21,20 @@ from tensorflow import logging as log
 import time
 import os
 
-FLAGS = tf.app.flags.FLAGS
-
 
 def get_config():
     """Returns config for tf.session"""
     config = tf.ConfigProto(
         allow_soft_placement=True,
-        log_device_placement=False
+        log_device_placement=False,
+        gpu_options=tf.GPUOptions(
+            allow_growth=True
+        )
     )
-    config.gpu_options.allow_growth = True
-    # config.gpu_options.per_process_gpu_memory_fraction=0.5
     return config
 
 
-def load_ckpt(saver, sess, ckpt_dir="train"):
+def load_ckpt(saver, sess, log_root, ckpt_dir="train"):
     """Load checkpoint from the ckpt_dir (if unspecified, this is train dir)
     and restore it to saver and sess, waiting 10 secs in the case of failure.
     Also returns checkpoint name.
@@ -43,7 +42,7 @@ def load_ckpt(saver, sess, ckpt_dir="train"):
     while True:
         try:
             latest_filename = "checkpoint_best" if ckpt_dir == "eval" else None
-            ckpt_dir = os.path.join(FLAGS.log_root, ckpt_dir)
+            ckpt_dir = os.path.join(log_root, ckpt_dir)
             ckpt_state = tf.train.get_checkpoint_state(ckpt_dir, latest_filename=latest_filename)
             log.info('Loading checkpoint %s', ckpt_state.model_checkpoint_path)
             saver.restore(sess, ckpt_state.model_checkpoint_path)

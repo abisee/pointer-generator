@@ -16,11 +16,8 @@
 
 """This file contains code to run beam search decoding"""
 
-import tensorflow as tf
 import numpy as np
-import data
-
-FLAGS = tf.app.flags.FLAGS
+import trainer.data as data
 
 
 class Hypothesis(object):
@@ -33,8 +30,10 @@ class Hypothesis(object):
           tokens: List of integers. The ids of the tokens that form the summary so far.
           log_probs: List, same length as tokens, of floats, giving the log probabilities of the tokens so far.
           state: Current state of the decoder, a LSTMStateTuple.
-          attn_dists: List, same length as tokens, of numpy arrays with shape (attn_length). These are the attention distributions so far.
-          p_gens: List, same length as tokens, of floats, or None if not using pointer-generator model. The values of the generation probability so far.
+          attn_dists: List, same length as tokens, of numpy arrays with shape (attn_length).
+            These are the attention distributions so far.
+          p_gens: List, same length as tokens, of floats, or None if not using pointer-generator model.
+            The values of the generation probability so far.
           coverage: Numpy array of shape (attn_length), or None if not using coverage. The current coverage vector.
         """
         self.tokens = tokens
@@ -79,14 +78,17 @@ class Hypothesis(object):
         return self.log_prob / len(self.tokens)
 
 
-def run_beam_search(sess, model, vocab, batch):
+def run_beam_search(sess, model, vocab, batch, beam_size, min_dec_steps, max_dec_steps):
     """Performs beam search decoding on the given example.
 
     Args:
-      sess: a tf.Session
-      model: a seq2seq model
-      vocab: Vocabulary object
-      batch: Batch object that is the same example repeated across the batch
+      :param sess: a tf.Session
+      :param model: a seq2seq model
+      :param vocab: Vocabulary object
+      :param batch: Batch object that is the same example repeated across the batch
+      :param max_dec_steps:
+      :param min_dec_steps:
+      :param beam_size:
 
     Returns:
       best_hyp: Hypothesis object; the best hypothesis found by beam search.
@@ -103,34 +105,38 @@ def run_beam_search(sess, model, vocab, batch):
                        attn_dists=[],
                        p_gens=[],
                        coverage=np.zeros([batch.enc_batch.shape[1]])  # zero vector of length attention_length
-                       ) for _ in range(FLAGS.beam_size)]
+                       ) for _ in range(beam_size)]
     results = []  # this will contain finished hypotheses (those that have emitted the [STOP] token)
 
     steps = 0
-    while steps < FLAGS.max_dec_steps and len(results) < FLAGS.beam_size:
+    while steps < max_dec_steps and len(results) < beam_size:
         latest_tokens = [h.latest_token for h in hyps]  # latest token produced by each hypothesis
+        # change any in-article temporary OOV ids to [UNK] id, so that we can lookup word embeddings
         latest_tokens = [t if t in range(vocab.size()) else vocab.word2id(data.UNKNOWN_TOKEN) for t in
-                         latest_tokens]  # change any in-article temporary OOV ids to [UNK] id, so that we can lookup word embeddings
+                         latest_tokens]
         states = [h.state for h in hyps]  # list of current decoder states of the hypotheses
         prev_coverage = [h.coverage for h in hyps]  # list of coverage vectors (or None)
 
         # Run one step of the decoder to get the new info
-        (topk_ids, topk_log_probs, new_states, attn_dists, p_gens, new_coverage) = model.decode_onestep(sess=sess,
-                                                                                                        batch=batch,
-                                                                                                        latest_tokens=latest_tokens,
-                                                                                                        enc_states=enc_states,
-                                                                                                        dec_init_states=states,
-                                                                                                        prev_coverage=prev_coverage)
+        (topk_ids, topk_log_probs, new_states, attn_dists, p_gens, new_coverage) = model.decode_onestep(
+            sess=sess,
+            batch=batch,
+            latest_tokens=latest_tokens,
+            enc_states=enc_states,
+            dec_init_states=states,
+            prev_coverage=prev_coverage
+        )
 
         # Extend each hypothesis and collect them all in all_hyps
         all_hyps = []
-        num_orig_hyps = 1 if steps == 0 else len(
-            hyps)  # On the first step, we only had one original hypothesis (the initial hypothesis). On subsequent steps, all original hypotheses are distinct.
+        # On the first step, we only had one original hypothesis (the initial hypothesis).
+        # On subsequent steps, all original hypotheses are distinct.
+        num_orig_hyps = 1 if steps == 0 else len(hyps)
         for i in range(num_orig_hyps):
+            # take the ith hypothesis and new decoder state info
             h, new_state, attn_dist, p_gen, new_coverage_i = hyps[i], new_states[i], attn_dists[i], p_gens[i], \
-                                                             new_coverage[
-                                                                 i]  # take the ith hypothesis and new decoder state info
-            for j in range(FLAGS.beam_size * 2):  # for each of the top 2*beam_size hyps:
+                                                             new_coverage[i]
+            for j in range(beam_size * 2):  # for each of the top 2*beam_size hyps:
                 # Extend the ith hypothesis with the jth option
                 new_hyp = h.extend(token=topk_ids[i, j],
                                    log_prob=topk_log_probs[i, j],
@@ -145,20 +151,20 @@ def run_beam_search(sess, model, vocab, batch):
         for h in sort_hyps(all_hyps):  # in order of most likely h
             if h.latest_token == vocab.word2id(data.STOP_DECODING):  # if stop token is reached...
                 # If this hypothesis is sufficiently long, put in results. Otherwise discard.
-                if steps >= FLAGS.min_dec_steps:
+                if steps >= min_dec_steps:
                     results.append(h)
             else:  # hasn't reached stop token, so continue to extend this hypothesis
                 hyps.append(h)
-            if len(hyps) == FLAGS.beam_size or len(results) == FLAGS.beam_size:
-                # Once we've collected beam_size-many hypotheses for the next step, or beam_size-many complete hypotheses, stop.
+            if len(hyps) == beam_size or len(results) == beam_size:
+                # Once we've collected beam_size-many hypotheses for the next step,
+                # or beam_size-many complete hypotheses, stop.
                 break
 
         steps += 1
 
     # At this point, either we've got beam_size results, or we've reached maximum decoder steps
-
-    if len(
-            results) == 0:  # if we don't have any complete results, add all current hypotheses (incomplete summaries) to results
+    # if we don't have any complete results, add all current hypotheses (incomplete summaries) to results
+    if len(results) == 0:
         results = hyps
 
     # Sort hypotheses by average log probability

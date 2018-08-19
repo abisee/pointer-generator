@@ -21,18 +21,51 @@ import time
 import numpy as np
 import tensorflow as tf
 from tensorflow import logging as log
-from attention_decoder import attention_decoder
+from trainer.attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
+from tensorflow.python.estimator.model_fn import ModeKeys as Modes
 
-FLAGS = tf.app.flags.FLAGS
+
+def generate_model_fn():
+    def _model_fn(features, labels, mode, params, config):
+        modes = [Modes.TRAIN, Modes.EVAL, Modes.PREDICT]
+        if mode not in modes:
+            raise ValueError(f'mode must be one of {repr(modes)} but mode={mode}')
+        if mode == Modes.TRAIN:
+            loss = 0  # TODO filler
+            grads = [0]  # TODO filler
+            global_step = 0  # TODO filler
+            tvars = tf.trainable_variables()
+            optimizer = tf.train.AdagradOptimizer(
+                learning_rate=params.lr,
+                initial_accumulator_value=params.adagrad_init_acc
+            )
+            train_op = optimizer.apply_gradients(
+                zip(grads, tvars),
+                global_step=global_step,
+                name='train_op'
+            )
+            return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+    return _model_fn
 
 
 class SummarizationModel(object):
-    """A class to represent a sequence-to-sequence model for text summarization. Supports both baseline mode, pointer-generator mode, and coverage"""
+    """A class to represent a sequence-to-sequence model for text summarization.
+    Supports both baseline mode, pointer-generator mode, and coverage
+    """
 
-    def __init__(self, hps, vocab):
+    def __init__(self, hps, vocab, mode, pointer_gen, coverage, log_root):
         self._hps = hps
         self._vocab = vocab
+        self._mode = mode
+        self._pointer_gen = pointer_gen
+        self._coverage = coverage
+        self._log_root = log_root
+        # The model is configured with max_dec_steps=1
+        # because we only ever run one step of the decoder at a time (to do beam search).
+        # Note that the batcher is initialized with max_dec_steps equal to e.g. 100
+        # because the batches need to contain the full summaries
+        self._max_dec_steps = 1 if mode == Modes.PREDICT else self._hps.max_dec_steps
 
     def _add_placeholders(self):
         """Add placeholders to the graph. These are entry points for any input data."""
@@ -42,18 +75,18 @@ class SummarizationModel(object):
         self._enc_batch = tf.placeholder(tf.int32, [hps.batch_size, None], name='enc_batch')
         self._enc_lens = tf.placeholder(tf.int32, [hps.batch_size], name='enc_lens')
         self._enc_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, None], name='enc_padding_mask')
-        if FLAGS.pointer_gen:
+        if self._pointer_gen:
             self._enc_batch_extend_vocab = tf.placeholder(tf.int32, [hps.batch_size, None],
                                                           name='enc_batch_extend_vocab')
             self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
 
         # decoder part
-        self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='dec_batch')
-        self._target_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='target_batch')
-        self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, hps.max_dec_steps],
+        self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size, self._max_dec_steps], name='dec_batch')
+        self._target_batch = tf.placeholder(tf.int32, [hps.batch_size, self._max_dec_steps], name='target_batch')
+        self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, self._max_dec_steps],
                                                 name='dec_padding_mask')
 
-        if hps.mode == "decode" and hps.coverage:
+        if self._mode == Modes.PREDICT and self._coverage:
             self.prev_coverage = tf.placeholder(tf.float32, [hps.batch_size, None], name='prev_coverage')
 
     def _make_feed_dict(self, batch, just_enc=False):
@@ -63,11 +96,11 @@ class SummarizationModel(object):
           batch: Batch object
           just_enc: Boolean. If True, only feed the parts needed for the encoder.
         """
-        feed_dict = {}
+        feed_dict = dict()
         feed_dict[self._enc_batch] = batch.enc_batch
         feed_dict[self._enc_lens] = batch.enc_lens
         feed_dict[self._enc_padding_mask] = batch.enc_padding_mask
-        if FLAGS.pointer_gen:
+        if self._pointer_gen:
             feed_dict[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
             feed_dict[self._max_art_oovs] = batch.max_art_oovs
         if not just_enc:
@@ -145,14 +178,23 @@ class SummarizationModel(object):
         """
         hps = self._hps
         cell = tf.contrib.rnn.LSTMCell(hps.hidden_dim, state_is_tuple=True, initializer=self.rand_unif_init)
+        # In decode mode, we run attention_decoder one step at a time and
+        # so need to pass in the previous step's coverage vector each time
+        prev_coverage = self.prev_coverage if self._mode == Modes.PREDICT and self._coverage else None
 
-        prev_coverage = self.prev_coverage if hps.mode == "decode" and hps.coverage else None  # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
-
-        outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(inputs, self._dec_in_state,
-                                                                             self._enc_states, self._enc_padding_mask,
-                                                                             cell, initial_state_attention=(
-                        hps.mode == "decode"), pointer_gen=hps.pointer_gen, use_coverage=hps.coverage,
-                                                                             prev_coverage=prev_coverage)
+        outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(
+            inputs,
+            self._dec_in_state,
+            self._enc_states,
+            self._enc_padding_mask,
+            cell,
+            initial_state_attention=(
+                self._mode == Modes.PREDICT
+            ),
+            pointer_gen=self._pointer_gen,
+            use_coverage=self._coverage,
+            prev_coverage=prev_coverage
+        )
 
         return outputs, out_state, attn_dists, p_gens, coverage
 
@@ -198,11 +240,11 @@ class SummarizationModel(object):
 
             return final_dists
 
-    def _add_emb_vis(self, embedding_var):
+    def _add_emb_vis(self, embedding_var, log_root):
         """Do setup so that we can view word embedding visualization in Tensorboard, as described here:
         https://www.tensorflow.org/get_started/embedding_viz
         Make the vocab metadata file, then make the projector config file pointing to it."""
-        train_dir = os.path.join(FLAGS.log_root, "train")
+        train_dir = os.path.join(log_root, "train")
         vocab_metadata_path = os.path.join(train_dir, "vocab_metadata.tsv")
         self._vocab.write_metadata(vocab_metadata_path)  # write metadata file
         summary_writer = tf.summary.FileWriter(train_dir)
@@ -219,15 +261,15 @@ class SummarizationModel(object):
 
         with tf.variable_scope('seq2seq'):
             # Some initializers
-            self.rand_unif_init = tf.random_uniform_initializer(-hps.rand_unif_init_mag, hps.rand_unif_init_mag,
-                                                                seed=123)
+            self.rand_unif_init = tf.random_uniform_initializer(-hps.rand_unif_init_mag, hps.rand_unif_init_mag)
             self.trunc_norm_init = tf.truncated_normal_initializer(stddev=hps.trunc_norm_init_std)
 
             # Add embedding matrix (shared by the encoder and decoder inputs)
             with tf.variable_scope('embedding'):
                 embedding = tf.get_variable('embedding', [vsize, hps.emb_dim], dtype=tf.float32,
                                             initializer=self.trunc_norm_init)
-                if hps.mode == "train": self._add_emb_vis(embedding)  # add to tensorboard
+                if self._mode == "train":
+                    self._add_emb_vis(embedding, log_root=self._log_root)  # add to tensorboard
                 emb_enc_inputs = tf.nn.embedding_lookup(embedding,
                                                         self._enc_batch)  # tensor with shape (batch_size, max_enc_steps, emb_size)
                 emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch,
@@ -260,15 +302,15 @@ class SummarizationModel(object):
                                vocab_scores]  # The vocabulary distributions. List length max_dec_steps of (batch_size, vsize) arrays. The words are in the order they appear in the vocabulary file.
 
             # For pointer-generator model, calc final distribution from copy distribution and vocabulary distribution
-            if FLAGS.pointer_gen:
+            if self._pointer_gen:
                 final_dists = self._calc_final_dist(vocab_dists, self.attn_dists)
             else:  # final distribution is just vocabulary distribution
                 final_dists = vocab_dists
 
-            if hps.mode in ['train', 'eval']:
+            if self._mode in ['train', 'eval']:
                 # Calculate the loss
                 with tf.variable_scope('loss'):
-                    if FLAGS.pointer_gen:
+                    if self._pointer_gen:
                         # Calculate the loss per step
                         # This is fiddly; we use tf.gather_nd to pick out the probabilities of the gold target words
                         loss_per_step = []  # will be list length max_dec_steps containing shape (batch_size)
@@ -293,14 +335,14 @@ class SummarizationModel(object):
                     tf.summary.scalar('loss', self._loss)
 
                     # Calculate coverage loss from the attention distributions
-                    if hps.coverage:
+                    if self._coverage:
                         with tf.variable_scope('coverage_loss'):
                             self._coverage_loss = _coverage_loss(self.attn_dists, self._dec_padding_mask)
                             tf.summary.scalar('coverage_loss', self._coverage_loss)
                         self._total_loss = self._loss + hps.cov_loss_wt * self._coverage_loss
                         tf.summary.scalar('total_loss', self._total_loss)
 
-        if hps.mode == "decode":
+        if self._mode == Modes.PREDICT:
             # We run decode beam search mode one decoder step at a time
             assert len(
                 final_dists) == 1  # final_dists is a singleton list containing shape (batch_size, extended_vsize)
@@ -312,7 +354,7 @@ class SummarizationModel(object):
     def _add_train_op(self):
         """Sets self._train_op, the op to run for training."""
         # Take gradients of the trainable variables w.r.t. the loss function to minimize
-        loss_to_minimize = self._total_loss if self._hps.coverage else self._loss
+        loss_to_minimize = self._total_loss if self._coverage else self._loss
         tvars = tf.trainable_variables()
         gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
@@ -337,7 +379,7 @@ class SummarizationModel(object):
         with tf.device("/gpu:0"):
             self._add_seq2seq()
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        if self._hps.mode == 'train':
+        if self._mode == 'train':
             self._add_train_op()
         self._summaries = tf.summary.merge_all()
         t1 = time.time()
@@ -352,7 +394,7 @@ class SummarizationModel(object):
             'loss': self._loss,
             'global_step': self.global_step,
         }
-        if self._hps.coverage:
+        if self._coverage:
             to_return['coverage_loss'] = self._coverage_loss
         return sess.run(to_return, feed_dict)
 
@@ -364,7 +406,7 @@ class SummarizationModel(object):
             'loss': self._loss,
             'global_step': self.global_step,
         }
-        if self._hps.coverage:
+        if self._coverage:
             to_return['coverage_loss'] = self._coverage_loss
         return sess.run(to_return, feed_dict)
 
@@ -432,12 +474,12 @@ class SummarizationModel(object):
             "attn_dists": self.attn_dists
         }
 
-        if FLAGS.pointer_gen:
+        if self._pointer_gen:
             feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
             feed[self._max_art_oovs] = batch.max_art_oovs
             to_return['p_gens'] = self.p_gens
 
-        if self._hps.coverage:
+        if self._coverage:
             feed[self.prev_coverage] = np.stack(prev_coverage, axis=0)
             to_return['coverage'] = self.coverage
 
@@ -451,7 +493,7 @@ class SummarizationModel(object):
         assert len(results['attn_dists']) == 1
         attn_dists = results['attn_dists'][0].tolist()
 
-        if FLAGS.pointer_gen:
+        if self._pointer_gen:
             # Convert singleton list containing a tensor to a list of k arrays
             assert len(results['p_gens']) == 1
             p_gens = results['p_gens'][0].tolist()
@@ -459,7 +501,7 @@ class SummarizationModel(object):
             p_gens = [None for _ in range(beam_size)]
 
         # Convert the coverage tensor to a list length k containing the coverage vector for each hypothesis
-        if FLAGS.coverage:
+        if self._coverage:
             new_coverage = results['coverage'].tolist()
             assert len(new_coverage) == beam_size
         else:

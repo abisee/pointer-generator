@@ -16,19 +16,20 @@
 
 """This file contains code to process data into batches"""
 
-import queue as Queue
+from queue import Queue
 from random import shuffle
 from threading import Thread
 import time
 import numpy as np
 from tensorflow import logging as log
-import data
+import trainer.data as data
+from tensorflow.python.estimator.model_fn import ModeKeys as Modes
 
 
 class Example(object):
     """Class representing a train/val/test example for text summarization."""
 
-    def __init__(self, article, abstract_sentences, vocab, hps):
+    def __init__(self, article, abstract_sentences, vocab, hps, pointer_gen):
         """Initializes the Example, performing tokenization and truncation to produce the encoder, decoder and target sequences, which are stored in self.
 
         Args:
@@ -38,6 +39,7 @@ class Example(object):
           hps: hyperparameters
         """
         self.hps = hps
+        self.pointer_gen = pointer_gen
 
         # Get ids of special tokens
         start_decoding = vocab.word2id(data.START_DECODING)
@@ -63,7 +65,7 @@ class Example(object):
         self.dec_len = len(self.dec_input)
 
         # If using pointer-generator mode, we need to store some extra info
-        if hps.pointer_gen:
+        if self.pointer_gen:
             # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
             self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
 
@@ -113,7 +115,7 @@ class Example(object):
         """Pad the encoder input sequence with pad_id up to max_len."""
         while len(self.enc_input) < max_len:
             self.enc_input.append(pad_id)
-        if self.hps.pointer_gen:
+        if self.pointer_gen:
             while len(self.enc_input_extend_vocab) < max_len:
                 self.enc_input_extend_vocab.append(pad_id)
 
@@ -121,7 +123,7 @@ class Example(object):
 class Batch(object):
     """Class representing a minibatch of train/val/test examples for text summarization."""
 
-    def __init__(self, example_list, hps, vocab):
+    def __init__(self, example_list, hps, vocab, pointer_gen):
         """Turns the example_list into a Batch object.
 
         Args:
@@ -129,6 +131,7 @@ class Batch(object):
            hps: hyperparameters
            vocab: Vocabulary object
         """
+        self.pointer_gen = pointer_gen
         self.pad_id = vocab.word2id(data.PAD_TOKEN)  # id of the PAD token used to pad sequences
         self.init_encoder_seq(example_list, hps)  # initialize the input to the encoder
         self.init_decoder_seq(example_list, hps)  # initialize the input and targets for the decoder
@@ -172,7 +175,7 @@ class Batch(object):
                 self.enc_padding_mask[i][j] = 1
 
         # For pointer-generator mode, need to store some extra info
-        if hps.pointer_gen:
+        if self.pointer_gen:
             # Determine the max number of in-article OOVs in this batch
             self.max_art_oovs = max([len(ex.article_oovs) for ex in example_list])
             # Store the in-article OOVs themselves
@@ -220,7 +223,7 @@ class Batcher(object):
 
     BATCH_QUEUE_MAX = 100  # max number of batches the batch_queue can hold
 
-    def __init__(self, data_path, vocab, hps, single_pass):
+    def __init__(self, data_path, vocab, hps, single_pass, mode, pointer_gen):
         """Initialize the batcher. Start threads that process the data into batches.
 
         Args:
@@ -233,10 +236,12 @@ class Batcher(object):
         self._vocab = vocab
         self._hps = hps
         self._single_pass = single_pass
+        self._mode = mode
+        self._pointer_gen = pointer_gen
 
         # Initialize a queue of Batches waiting to be used, and a queue of Examples waiting to be batched
-        self._batch_queue = Queue.Queue(self.BATCH_QUEUE_MAX)
-        self._example_queue = Queue.Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size)
+        self._batch_queue = Queue(self.BATCH_QUEUE_MAX)
+        self._example_queue = Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size)
 
         # Different settings depending on whether we're in single_pass mode or not
         if single_pass:
@@ -270,7 +275,7 @@ class Batcher(object):
     def next_batch(self):
         """Return a Batch from the batch queue.
 
-        If mode='decode' then each batch contains a single example repeated beam_size-many times; this is necessary for beam search.
+        If mode='infer' then each batch contains a single example repeated beam_size-many times; this is necessary for beam search.
 
         Returns:
           batch: a Batch object, or None if we're in single_pass mode and we've exhausted the dataset.
@@ -308,7 +313,14 @@ class Batcher(object):
 
             abstract_sentences = [sent.strip() for sent in data.abstract2sents(
                 abstract)]  # Use the <s> and </s> tags in abstract to get a list of sentences.
-            example = Example(article, abstract_sentences, self._vocab, self._hps)  # Process into an Example.
+            # Process into an Example.
+            example = Example(
+                article,
+                abstract_sentences,
+                vocab=self._vocab,
+                hps=self._hps,
+                pointer_gen=self._pointer_gen
+            )
             self._example_queue.put(example)  # place the Example in the example queue.
 
     def fill_batch_queue(self):
@@ -317,7 +329,7 @@ class Batcher(object):
         In decode mode, makes batches that each contain a single example repeated.
         """
         while True:
-            if self._hps.mode != 'decode':
+            if self._mode != Modes.PREDICT:
                 # Get bucketing_cache_size-many batches of Examples into a list, then sort
                 inputs = []
                 for _ in range(self._hps.batch_size * self._bucketing_cache_size):
@@ -331,12 +343,21 @@ class Batcher(object):
                 if not self._single_pass:
                     shuffle(batches)
                 for b in batches:  # each b is a list of Example objects
-                    self._batch_queue.put(Batch(b, self._hps, self._vocab))
+                    self._batch_queue.put(
+                        Batch(
+                            b,
+                            hps=self._hps,
+                            vocab=self._vocab,
+                            pointer_gen=self._pointer_gen
+                        )
+                    )
 
             else:  # beam search decode mode
                 ex = self._example_queue.get()
                 b = [ex for _ in range(self._hps.batch_size)]
-                self._batch_queue.put(Batch(b, self._hps, self._vocab))
+                self._batch_queue.put(
+                    Batch(b, hps=self._hps, vocab=self._vocab, pointer_gen=self._pointer_gen)
+                )
 
     def watch_threads(self):
         """Watch example queue and batch queue threads and restart if dead."""
