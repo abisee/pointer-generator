@@ -361,7 +361,7 @@ class SummarizationModel(object):
             self._add_placeholders()
             self._add_seq2seq()
             self.global_step = tf.Variable(0, name='global_step', trainable=False)
-            if self._mode == 'train':
+            if self._mode == Modes.TRAIN:
                 self._add_train_op()
             self._summaries = tf.summary.merge_all()
         t1 = time.time()
