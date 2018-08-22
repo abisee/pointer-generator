@@ -360,7 +360,12 @@ class SummarizationModel(object):
         with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
             self._add_placeholders()
             self._add_seq2seq()
-            self.global_step = tf.Variable(0, name='global_step', trainable=False)
+            self.global_step = tf.get_variable(
+                'global_step',
+                dtype=tf.int32,
+                initializer=tf.constant(0),
+                trainable=False
+            )
             if self._mode == Modes.TRAIN:
                 self._add_train_op()
             self._summaries = tf.summary.merge_all()
