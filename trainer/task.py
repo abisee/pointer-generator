@@ -108,8 +108,17 @@ def __convert_to_coverage_model(log_root):
     exit()
 
 
-def setup_training(model, batcher,
-                   log_root, convert_to_coverage_model, coverage, restore_best_model, debug):
+def setup_training(
+        model,
+        batcher,
+        log_root,
+        convert_to_coverage_model,
+        coverage,
+        restore_best_model,
+        debug,
+        max_step,
+        is_chief
+):
     """Does setup before starting training (run_training)"""
     train_dir = os.path.join(log_root, "train")
     if not os.path.exists(train_dir):
@@ -125,12 +134,13 @@ def setup_training(model, batcher,
         __restore_best_model(log_root)
     try:
         # this is an infinite loop until interrupted
-        run_training(model, batcher, train_dir, coverage=coverage, debug=debug)
+        run_training(model, batcher, train_dir,
+                     coverage=coverage, debug=debug, max_step=max_step, is_chief=is_chief)
     except KeyboardInterrupt:
         log.info("Caught keyboard interrupt on worker. Stopping...")
 
 
-def __train_session(train_dir, debug):
+def __train_session(train_dir, is_chief, debug):
     sess = tf.train.MonitoredTrainingSession(
         checkpoint_dir=train_dir,  # required to restore variables!
         summary_dir=train_dir,
@@ -150,12 +160,14 @@ def __train_session(train_dir, debug):
     return sess
 
 
-def run_training(model, batcher, train_dir, coverage, debug):
+def run_training(model, batcher, train_dir, coverage, debug, max_step, is_chief):
     """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
     log.debug("starting run_training")
     summary_writer = tf.summary.FileWriterCache.get(train_dir)
-    with __train_session(train_dir, debug) as sess:
-        while not sess.should_stop():  # repeats until interrupted
+    with __train_session(train_dir=train_dir, is_chief=is_chief, debug=debug) as sess:
+        train_step = 0
+        # repeats until max_step is reached
+        while not sess.should_stop() and train_step <= max_step:
             log.debug('running training step...')
             batch = batcher.next_batch()
             t0 = time.time()
@@ -282,8 +294,9 @@ def __main(
     log.info('Starting seq2seq_attention in %s mode...', mode)
     log_root = __log_root(log_root, exp_name, mode)
     vocab = Vocab(vocab_path, vocab_size)  # create a vocabulary
+    tf_config = util.tf_config()
     hps = __hparams(**hparams)
-    log.info(f'hps={repr(hps)}')
+    log.info(f'hps={repr(hps)}\ntf_config={repr(tf_config)}')
     conf = tf.estimator.RunConfig(
         model_dir=log_root,
         session_config=util.get_config(),
@@ -302,8 +315,15 @@ def __main(
         mode=mode,
         pointer_gen=pointer_gen
     )
-    model = SummarizationModel(hps, vocab,
-                               mode=mode, pointer_gen=pointer_gen, coverage=coverage, log_root=log_root)
+    model = SummarizationModel(
+        hps,
+        vocab,
+        mode=mode,
+        pointer_gen=pointer_gen,
+        coverage=coverage,
+        log_root=log_root,
+        cluster_spec=tf_config['cluster_spec']
+    )
     if mode == Modes.TRAIN:
         setup_training(
             model,
@@ -312,7 +332,9 @@ def __main(
             convert_to_coverage_model=convert_to_coverage_model,
             coverage=coverage,
             restore_best_model=restore_best_model,
-            debug=debug
+            debug=debug,
+            max_step=hps.max_step,
+            is_chief=tf_config['is_chief']
         )
     elif mode == Modes.EVAL:
         run_eval(model, batcher, log_root=log_root, coverage=coverage)
@@ -388,6 +410,11 @@ if __name__ == '__main__':
         type=int,
         default=16,
         help='minibatch size')
+    parser.add_argument(
+        '--max_step',
+        type=int,
+        default=30,
+        help='model will be trained for maximum number of steps')
     parser.add_argument(
         '--max_enc_steps',
         type=int,

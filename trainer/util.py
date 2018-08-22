@@ -20,6 +20,7 @@ import tensorflow as tf
 from tensorflow import logging as log
 import time
 import os
+import json
 
 
 def get_config():
@@ -50,3 +51,38 @@ def load_ckpt(saver, sess, log_root, ckpt_dir="train"):
         except:
             log.info("Failed to load checkpoint from %s. Sleeping for %i secs...", ckpt_dir, 10)
             time.sleep(10)
+
+
+def __tf_config_json():
+    conf = os.environ.get('TF_CONFIG')
+    if not conf:
+        return None
+    return json.loads(conf)
+
+
+def tf_config():
+    """Parse TF_CONFIG to cluster_spec
+          TF_CONFIG environment variable is available when running using
+          gcloud either locally or on cloud. It has all the information required
+          to create a ClusterSpec which is important for running distributed code.
+    """
+    config_json = __tf_config_json()
+    res = {
+        'cluster_spec': None,
+        'server': None,
+        'is_chief': True
+    }
+    if config_json is None:
+        return res
+    cluster = config_json.get('cluster')
+    job_name = config_json.get('task', {}).get('type')
+    task_index = config_json.get('task', {}).get('index')
+    # If cluster information is empty run local
+    if job_name is None or task_index is None:
+        return res
+    res.cluster_spec = tf.train.ClusterSpec(cluster)
+    res.server = tf.train.Server(res.cluster_spec,
+                                 job_name=job_name,
+                                 task_index=task_index)
+    res.is_chief = (job_name == 'master')
+    return res

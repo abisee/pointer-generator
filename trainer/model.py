@@ -26,35 +26,12 @@ from tensorflow.contrib.tensorboard.plugins import projector
 from tensorflow.python.estimator.model_fn import ModeKeys as Modes
 
 
-def generate_model_fn():
-    def _model_fn(features, labels, mode, params, config):
-        modes = [Modes.TRAIN, Modes.EVAL, Modes.PREDICT]
-        if mode not in modes:
-            raise ValueError(f'mode must be one of {repr(modes)} but mode={mode}')
-        if mode == Modes.TRAIN:
-            loss = 0  # TODO filler
-            grads = [0]  # TODO filler
-            global_step = 0  # TODO filler
-            tvars = tf.trainable_variables()
-            optimizer = tf.train.AdagradOptimizer(
-                learning_rate=params.lr,
-                initial_accumulator_value=params.adagrad_init_acc
-            )
-            train_op = optimizer.apply_gradients(
-                zip(grads, tvars),
-                global_step=global_step,
-                name='train_op'
-            )
-            return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
-    return _model_fn
-
-
 class SummarizationModel(object):
     """A class to represent a sequence-to-sequence model for text summarization.
     Supports both baseline mode, pointer-generator mode, and coverage
     """
 
-    def __init__(self, hps, vocab, mode, pointer_gen, coverage, log_root):
+    def __init__(self, hps, vocab, mode, pointer_gen, coverage, log_root, cluster_spec):
         self._hps = hps
         self._vocab = vocab
         self._mode = mode
@@ -66,6 +43,7 @@ class SummarizationModel(object):
         # Note that the batcher is initialized with max_dec_steps equal to e.g. 100
         # because the batches need to contain the full summaries
         self._max_dec_steps = 1 if mode == Modes.PREDICT else self._hps.max_dec_steps
+        self._cluster_spec = cluster_spec
 
     def _add_placeholders(self):
         """Add placeholders to the graph. These are entry points for any input data."""
@@ -359,7 +337,7 @@ class SummarizationModel(object):
         gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
         # Clip the gradients
-        with tf.device("/gpu:0"):
+        with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
             grads, global_norm = tf.clip_by_global_norm(gradients, self._hps.max_grad_norm)
 
         # Add a summary
@@ -367,7 +345,7 @@ class SummarizationModel(object):
 
         # Apply adagrad optimizer
         optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
-        with tf.device("/gpu:0"):
+        with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
             self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step,
                                                        name='train_step')
 
@@ -376,7 +354,7 @@ class SummarizationModel(object):
         log.info('Building graph...')
         t0 = time.time()
         self._add_placeholders()
-        with tf.device("/gpu:0"):
+        with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
             self._add_seq2seq()
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
         if self._mode == 'train':
