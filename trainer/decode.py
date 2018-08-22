@@ -35,7 +35,19 @@ SECS_UNTIL_NEW_CKPT = 60  # max number of seconds before loading new checkpoint
 class BeamSearchDecoder(object):
     """Beam search decoder."""
 
-    def __init__(self, model, batcher, vocab, hps, single_pass, log_root, pointer_gen, data_path, beam_size):
+    def __init__(
+            self,
+            model,
+            batcher,
+            vocab,
+            hps,
+            single_pass,
+            log_root,
+            pointer_gen,
+            data_path,
+            beam_size,
+            conf
+    ):
         """Initialize decoder.
 
         Args:
@@ -54,7 +66,7 @@ class BeamSearchDecoder(object):
         self._data_path = data_path
         self._beam_size = beam_size
         self._saver = tf.train.Saver()  # we use this to load checkpoints for decoding
-        self._sess = tf.Session(config=util.get_config())
+        self._sess = tf.Session(config=conf.session_config)
 
         # Load an initial checkpoint to use for decoding
         ckpt_path = util.load_ckpt(self._saver, self._sess, log_root=self._log_root)

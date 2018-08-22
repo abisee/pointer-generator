@@ -59,12 +59,12 @@ def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.
     return running_avg_loss
 
 
-def __restore_best_model(log_root):
+def __restore_best_model(log_root, conf):
     """Load bestmodel file from eval directory, add variables for adagrad, and save to train directory"""
     log.info("Restoring bestmodel for training...")
 
     # Initialize all vars in the model
-    sess = tf.Session(config=util.get_config())
+    sess = tf.Session(config=conf.session_config)
     log.info("Initializing all variables...")
     sess.run(tf.global_variables_initializer())
 
@@ -84,12 +84,12 @@ def __restore_best_model(log_root):
     exit()
 
 
-def __convert_to_coverage_model(log_root):
+def __convert_to_coverage_model(log_root, conf):
     """Load non-coverage checkpoint, add initialized extra variables for coverage, and save as new checkpoint"""
     log.info("converting non-coverage model to coverage model..")
 
     # initialize an entire coverage model from scratch
-    sess = tf.Session(config=util.get_config())
+    sess = tf.Session(config=conf.session_config)
     log.info("initializing everything...")
     sess.run(tf.global_variables_initializer())
 
@@ -117,7 +117,7 @@ def setup_training(
         restore_best_model,
         debug,
         max_step,
-        is_chief
+        conf
 ):
     """Does setup before starting training (run_training)"""
     train_dir = os.path.join(log_root, "train")
@@ -129,27 +129,27 @@ def setup_training(
         To convert your non-coverage model to a coverage model, 
         run with convert_to_coverage_model=True and coverage=True\
         """
-        __convert_to_coverage_model(log_root)
+        __convert_to_coverage_model(log_root, conf=conf)
     if restore_best_model:
-        __restore_best_model(log_root)
+        __restore_best_model(log_root, conf=conf)
     try:
         # this is an infinite loop until interrupted
         run_training(model, batcher, train_dir,
-                     coverage=coverage, debug=debug, max_step=max_step, is_chief=is_chief)
+                     coverage=coverage, debug=debug, max_step=max_step, conf=conf)
     except KeyboardInterrupt:
         log.info("Caught keyboard interrupt on worker. Stopping...")
 
 
-def __train_session(train_dir, is_chief, debug):
+def __train_session(train_dir, debug, conf):
     sess = tf.train.MonitoredTrainingSession(
         checkpoint_dir=train_dir,  # required to restore variables!
         summary_dir=train_dir,
-        is_chief=True,
+        is_chief=conf.is_chief,
         save_summaries_secs=60,
         save_checkpoint_secs=60,
         max_wait_secs=60,
         stop_grace_period_secs=60,
-        config=util.get_config(),
+        config=conf.session_config,
         scaffold=tf.train.Scaffold(
             saver=tf.train.Saver(max_to_keep=3)
         )
@@ -160,11 +160,11 @@ def __train_session(train_dir, is_chief, debug):
     return sess
 
 
-def run_training(model, batcher, train_dir, coverage, debug, max_step, is_chief):
+def run_training(model, batcher, train_dir, coverage, debug, max_step, conf):
     """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
     log.debug("starting run_training")
     summary_writer = tf.summary.FileWriterCache.get(train_dir)
-    with __train_session(train_dir=train_dir, is_chief=is_chief, debug=debug) as sess:
+    with __train_session(train_dir=train_dir, debug=debug, conf=conf) as sess:
         train_step = 0
         # repeats until max_step is reached
         while not sess.should_stop() and train_step <= max_step:
@@ -186,14 +186,14 @@ def run_training(model, batcher, train_dir, coverage, debug, max_step, is_chief)
             summary_writer.add_summary(summaries, train_step)  # write the summaries
 
 
-def run_eval(model, batcher, log_root, coverage):
+def run_eval(model, batcher, log_root, coverage, conf):
     """
     Repeatedly runs eval iterations, logging to screen and writing summaries.
     Saves the model with the best loss seen so far.
     """
     model.build_graph()  # build the graph
     saver = tf.train.Saver(max_to_keep=3)  # we will keep 3 best checkpoints at a time
-    sess = tf.Session(config=util.get_config())
+    sess = tf.Session(config=conf.session_config)
     eval_dir = os.path.join(log_root, "eval")  # make a subdir of the root dir for eval data
     bestmodel_save_path = os.path.join(eval_dir, 'bestmodel')  # this is where checkpoints of best models are saved
     summary_writer = tf.summary.FileWriter(eval_dir)
@@ -297,14 +297,7 @@ def __main(
     tf_config = util.tf_config()
     hps = __hparams(**hparams)
     log.info(f'hps={repr(hps)}\ntf_config={repr(tf_config)}')
-    conf = tf.estimator.RunConfig(
-        model_dir=log_root,
-        session_config=util.get_config(),
-        save_checkpoints_secs=60,
-        save_summary_steps=100,
-        keep_checkpoint_max=3,
-        tf_random_seed=random_seed
-    )
+    conf = util.run_config(model_dir=log_root, random_seed=random_seed)
 
     # Create a batcher object that will create minibatches of data
     batcher = Batcher(
@@ -334,10 +327,10 @@ def __main(
             restore_best_model=restore_best_model,
             debug=debug,
             max_step=hps.max_step,
-            is_chief=tf_config['is_chief']
+            conf=conf
         )
     elif mode == Modes.EVAL:
-        run_eval(model, batcher, log_root=log_root, coverage=coverage)
+        run_eval(model, batcher, log_root=log_root, coverage=coverage, conf=conf)
     elif mode == Modes.PREDICT:
         decoder = BeamSearchDecoder(model, batcher, vocab,
                                     hps=hps,
@@ -345,7 +338,8 @@ def __main(
                                     log_root=log_root,
                                     pointer_gen=pointer_gen,
                                     data_path=data_path,
-                                    beam_size=beam_size
+                                    beam_size=beam_size,
+                                    conf=conf
                                     )
         # decode indefinitely
         # (unless single_pass=True, in which case deocde the dataset exactly once)
