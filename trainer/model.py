@@ -44,6 +44,8 @@ class SummarizationModel(object):
         # because the batches need to contain the full summaries
         self._max_dec_steps = 1 if mode == Modes.PREDICT else self._hps.max_dec_steps
         self._cluster_spec = cluster_spec
+        self.global_step = None
+        self._summaries = None
 
     def _add_placeholders(self):
         """Add placeholders to the graph. These are entry points for any input data."""
@@ -166,9 +168,7 @@ class SummarizationModel(object):
             self._enc_states,
             self._enc_padding_mask,
             cell,
-            initial_state_attention=(
-                self._mode == Modes.PREDICT
-            ),
+            initial_state_attention=(self._mode == Modes.PREDICT),
             pointer_gen=self._pointer_gen,
             use_coverage=self._coverage,
             prev_coverage=prev_coverage
@@ -337,29 +337,33 @@ class SummarizationModel(object):
         gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
         # Clip the gradients
-        with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
-            grads, global_norm = tf.clip_by_global_norm(gradients, self._hps.max_grad_norm)
+        grads, global_norm = tf.clip_by_global_norm(gradients, self._hps.max_grad_norm)
 
         # Add a summary
         tf.summary.scalar('global_norm', global_norm)
 
         # Apply adagrad optimizer
-        optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
-        with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
-            self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step,
-                                                       name='train_step')
+        optimizer = tf.train.AdagradOptimizer(
+            self._hps.lr,
+            initial_accumulator_value=self._hps.adagrad_init_acc
+        )
+        self._train_op = optimizer.apply_gradients(
+            zip(grads, tvars),
+            global_step=self.global_step,
+            name='train_step'
+        )
 
     def build_graph(self):
         """Add the placeholders, model, global step, train_op and summaries to the graph"""
         log.info('Building graph...')
         t0 = time.time()
-        self._add_placeholders()
         with tf.device(tf.train.replica_device_setter(cluster=self._cluster_spec)):
+            self._add_placeholders()
             self._add_seq2seq()
-        self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        if self._mode == 'train':
-            self._add_train_op()
-        self._summaries = tf.summary.merge_all()
+            self.global_step = tf.Variable(0, name='global_step', trainable=False)
+            if self._mode == 'train':
+                self._add_train_op()
+            self._summaries = tf.summary.merge_all()
         t1 = time.time()
         log.info('Time to build graph: %i seconds', t1 - t0)
 
