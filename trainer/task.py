@@ -294,10 +294,9 @@ def __main(
     log.info('Starting seq2seq_attention in %s mode...', mode)
     log_root = __log_root(log_root, exp_name, mode)
     vocab = Vocab(vocab_path, vocab_size)  # create a vocabulary
-    tf_config = util.tf_config()
     hps = __hparams(**hparams)
-    log.info(f'hps={repr(hps)}\ntf_config={repr(tf_config)}')
     conf = util.run_config(model_dir=log_root, random_seed=random_seed)
+    log.info(f'hps={repr(hps)}\nconf={util.repr_run_config(conf)}')
 
     # Create a batcher object that will create minibatches of data
     batcher = Batcher(
@@ -315,7 +314,7 @@ def __main(
         pointer_gen=pointer_gen,
         coverage=coverage,
         log_root=log_root,
-        cluster_spec=tf_config['cluster_spec']
+        conf=conf
     )
     if mode == Modes.TRAIN:
         setup_training(

@@ -48,7 +48,7 @@ def __tf_config_json():
     return json.loads(conf)
 
 
-def tf_config():
+def __tf_config():  # TODO remove
     """Parse TF_CONFIG to cluster_spec
           TF_CONFIG environment variable is available when running using
           gcloud either locally or on cloud. It has all the information required
@@ -113,3 +113,28 @@ def run_config(model_dir, random_seed):
         keep_checkpoint_max=3,
         tf_random_seed=random_seed
     )
+
+
+def repr_run_config(conf):
+    assert isinstance(conf, tf.estimator.RunConfig)
+    return f"""tf.estimator.RunConfig(
+        model_dir={repr(conf.model_dir)},
+        cluster_spec={repr(conf.cluster_spec.as_dict())}, 
+        is_chief={repr(conf.is_chief)}, 
+        master={repr(conf.master)}, 
+        num_worker_replicas={repr(conf.num_worker_replicas)}, 
+        num_ps_replicas={repr(conf.num_ps_replicas)}, 
+        task_id={repr(conf.task_id)}, 
+        task_type={repr(conf.task_type)},
+        tf_random_seed={repr(conf.tf_random_seed)},
+        save_summary_steps={repr(conf.save_summary_steps)},
+        save_checkpoints_steps={repr(conf.save_checkpoints_steps)},
+        save_checkpoints_secs={repr(conf.save_checkpoints_secs)},
+        session_config={repr(conf.session_config)},
+        keep_checkpoint_max={repr(conf.keep_checkpoint_max)},
+        keep_checkpoint_every_n_hours={repr(conf.keep_checkpoint_every_n_hours)},
+        log_step_count_steps={repr(conf.log_step_count_steps)},
+        train_distribute={repr(conf.train_distribute)},
+        device_fn={repr(conf.device_fn)}
+    )
+    """
