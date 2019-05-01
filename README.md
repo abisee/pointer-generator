@@ -9,8 +9,8 @@ The test set output of the models described in the paper can be found [here](htt
 
 ## Looking for pretrained model?
 A pretrained model is available here:
-* [Version for Tensorflow 1.0](https://drive.google.com/file/d/0B7pQmm-OfDv7SHFadHR4RllfR1E/view?usp=sharing)
-* [Version for Tensorflow 1.2.1](https://drive.google.com/file/d/0B7pQmm-OfDv7ZUhHZm9ZWEZidDg/view?usp=sharing)
+* [Version for Tensorflow 1.0](https://drive.google.com/open?id=0B7pQmm-OfDv7SHFadHR4RllfR1E)
+* [Version for Tensorflow 1.2.1](https://drive.google.com/open?id=0B7pQmm-OfDv7ZUhHZm9ZWEZidDg)
 
 (The only difference between these two is the naming of some of the variables in the checkpoint. Tensorflow 1.0 uses `lstm_cell/biases` and `lstm_cell/weights` whereas Tensorflow 1.2.1 uses `lstm_cell/bias` and `lstm_cell/kernel`).
 
